@@ -4,23 +4,17 @@ You hold one **S04K** Kodiak set-gillnet permit and run one summer at a west-sid
 
 ## Requirements
 
-- **Python 3.12+**
+- **Rust** (stable, edition 2021). `rustc` 1.74+ is enough.
 - A **real terminal** (macOS Terminal, iTerm, Windows Terminal, gnome-terminal, and the like). Not a dumb pipe, and not an IDE output panel that does not speak alternate-screen / keyboard.
 - No API keys. Runtime is offline.
 
-## Install
+## Install (Mac)
 
-From GitHub:
-
-```bash
-python3 -m pip install "git+https://github.com/hrgrvs/salmon-king.git"
-salmon-king
-```
-
-Or with pipx:
+In Terminal:
 
 ```bash
-pipx install git+https://github.com/hrgrvs/salmon-king.git
+brew install rust
+cargo install --git https://github.com/hrgrvs/salmon-king
 salmon-king
 ```
 
@@ -29,38 +23,48 @@ From a clone:
 ```bash
 git clone https://github.com/hrgrvs/salmon-king.git
 cd salmon-king
-python3 -m pip install .
+cargo install --path .
 salmon-king
 ```
 
-Editable (if you want to hack on it):
+Play without installing:
 
 ```bash
 git clone https://github.com/hrgrvs/salmon-king.git
 cd salmon-king
-python3 -m pip install -e .
+cargo run --release
+```
+
+### Linux
+
+Install a Rust toolchain, then the same cargo commands:
+
+```bash
+# Debian/Ubuntu: sudo apt install cargo
+# or: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install --git https://github.com/hrgrvs/salmon-king
 salmon-king
-# or: python3 -m salmon_king
 ```
 
 ### Tests (optional)
 
 ```bash
-python3 -m pip install -e ".[dev]"
-pytest
+cargo test
 ```
 
 Headless season check (no TUI):
 
 ```bash
-python3 -m salmon_king --headless --camp uganik --year 2025 --seed 1701
+salmon-king --headless --camp uganik --year 2025 --seed 1701
+# or from a clone:
+cargo run -- --headless --camp uganik --year 2025 --seed 1701
 ```
 
 ## How to play
 
 ### New season
 
-Title screen: **New season** (`n`) or **Quit** (`q`). Then pick a camp, a **year**, and a seed.
+Title screen: **New season** (`n`) or **Quit** (`q`). Then pick a camp (`↑` `↓`), a **year**, and a seed (`Tab` between fields). `Enter` starts.
 
 | Camp | Character |
 |------|-----------|
@@ -94,7 +98,7 @@ Westside clock (5 AAC 18.362, generated, not a 2026 EO list): June tests (33-hou
 
 ### Orcas and sea lions
 
-This is a sim chain, not flavor. Transient killer whales in a bay run the sea lions off. Raids stop while they are there. Residents make the salmon act weird. Neither type picks your web.
+This is a sim chain, not flavor. **Transient killer whales in a bay run the sea lions off.** Raids stop while they occupy the bay, then there is a delay before lions return. Resident orcas make the salmon act weird. Neither type picks your web.
 
 ### Keys
 
