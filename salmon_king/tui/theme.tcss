@@ -1,0 +1,115 @@
+Screen {
+    background: #0e1418;
+    color: #d6cfc2;
+}
+
+#title-wrap {
+    align: center middle;
+    height: 1fr;
+}
+
+#title-card {
+    width: 78;
+    height: auto;
+    padding: 1 2;
+    border: heavy #b4532a;
+    background: #121b21;
+}
+
+.title {
+    text-style: bold;
+    color: #e8d5b5;
+    text-align: center;
+}
+
+.sub {
+    color: #8fa3ad;
+    text-align: center;
+}
+
+.flavor {
+    color: #c4b49a;
+    text-align: center;
+    padding: 1 2;
+}
+
+#hud {
+    height: 1;
+    background: #1a242b;
+    color: #e8d5b5;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#body {
+    height: 1fr;
+}
+
+#map-pane {
+    width: 3fr;
+    height: 1fr;
+    border: round #3d5a4c;
+    padding: 0 1;
+}
+
+#side {
+    width: 2fr;
+    height: 1fr;
+}
+
+#map-body {
+    height: 1fr;
+}
+
+#map-legend {
+    height: 2;
+    color: #8fa3ad;
+}
+
+.panel {
+    border: round #3d4a52;
+    padding: 0 1;
+    height: 1fr;
+}
+
+#crew-pane { height: 3fr; }
+#tender-pane { height: 2fr; }
+#camp-pane { height: 2fr; }
+#clock-pane { height: 2fr; }
+
+#log {
+    height: 7;
+    border: round #5a3d2a;
+    padding: 0 1;
+    color: #c4b49a;
+}
+
+#keys {
+    height: 1;
+    background: #1a242b;
+    color: #8fa3ad;
+    padding: 0 1;
+}
+
+.open { color: #8fbc8f; }
+.dark { color: #c45c4a; }
+.warn { color: #d4a017; }
+
+Button {
+    margin: 0 1;
+    min-width: 16;
+}
+
+#help-body, #recap-body, #modal-body {
+    padding: 1 2;
+    border: heavy #b4532a;
+    background: #121b21;
+    width: 80;
+    height: auto;
+    max-height: 90%;
+}
+
+ListView {
+    height: auto;
+    max-height: 16;
+}
