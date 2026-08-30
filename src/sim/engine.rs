@@ -239,7 +239,7 @@ impl Game {
         self.tide = tide;
         if self.day > season_end(self.year) {
             self.finish(GameEnd::Season);
-            return self.log[start..].to_vec();
+            return Self::log_since(&self.log, start);
         }
 
         self.weather = roll_weather(self.day, &self.camp, &mut self.rng);
@@ -267,7 +267,12 @@ impl Game {
         self.payroll();
         self.repair_idle();
         self.check_fail();
-        self.log[start..].to_vec()
+        Self::log_since(&self.log, start)
+    }
+
+    fn log_since(log: &[LogLine], start: usize) -> Vec<LogLine> {
+        let start = start.min(log.len());
+        log[start..].to_vec()
     }
 
     fn town_clock(&mut self) {
