@@ -43,16 +43,8 @@ pub const WESTSIDE: MapDef = MapDef {
         ("harvester", (17, 9)),
         ("cape_uyak", (23, 11)),
     ],
-    camp_pos: &[
-        ("bailey", (1, 5)),
-        ("uganik", (1, 6)),
-        ("larsen", (1, 10)),
-    ],
-    tender_pos: &[
-        ("bailey", (2, 5)),
-        ("uganik", (2, 6)),
-        ("larsen", (1, 9)),
-    ],
+    camp_pos: &[("bailey", (1, 5)), ("uganik", (1, 6)), ("larsen", (1, 10))],
+    tender_pos: &[("bailey", (2, 5)), ("uganik", (2, 6)), ("larsen", (1, 9))],
 };
 
 pub const ALITAK: MapDef = MapDef {
@@ -96,6 +88,19 @@ fn lookup(pairs: &[(&'static str, (usize, usize))], key: &str) -> Option<(usize,
     pairs.iter().find(|(k, _)| *k == key).map(|(_, xy)| *xy)
 }
 
+/// Marks the TUI paints onto a designed map. Display only.
+pub struct MapMarks<'a> {
+    pub deployed: &'a HashMap<String, String>,
+    /// (skiff id, location, kind) — picker vs holding read differently.
+    pub skiffs: &'a [(String, String, String)],
+    pub tender_here: bool,
+    pub closed_sites: &'a HashSet<String>,
+    pub cursor_site: Option<&'a str>,
+    pub transient_sites: &'a HashSet<String>,
+    pub resident_sites: &'a HashSet<String>,
+    pub fish_showing: bool,
+}
+
 pub fn render_map(
     map_id: &str,
     camp_id: &str,
@@ -107,6 +112,27 @@ pub fn render_map(
     transient_sites: &HashSet<String>,
     resident_sites: &HashSet<String>,
 ) -> String {
+    let skiffs: Vec<(String, String, String)> = skiff_sites
+        .iter()
+        .map(|(id, loc)| (id.clone(), loc.clone(), String::from("picker")))
+        .collect();
+    render_map_marked(
+        map_id,
+        camp_id,
+        &MapMarks {
+            deployed,
+            skiffs: &skiffs,
+            tender_here,
+            closed_sites,
+            cursor_site,
+            transient_sites,
+            resident_sites,
+            fish_showing: false,
+        },
+    )
+}
+
+pub fn render_map_marked(map_id: &str, camp_id: &str, marks: &MapMarks<'_>) -> String {
     let Some(m) = map_by_id(map_id) else {
         return String::from("(no map)");
     };
@@ -119,15 +145,25 @@ pub fn render_map(
         }
     };
 
+    let stamp_if_blank = |grid: &mut [Vec<char>], xy: (usize, usize), ch: char| -> bool {
+        let (x, y) = xy;
+        if y < grid.len() && x < grid[y].len() && grid[y][x] == ' ' {
+            grid[y][x] = ch;
+            true
+        } else {
+            false
+        }
+    };
+
     for (sid, xy) in m.pos {
-        if closed_sites.contains(*sid) {
-            stamp(&mut grid, *xy, 'x');
+        if marks.closed_sites.contains(*sid) {
+            stamp(&mut grid, *xy, '×');
         } else {
             stamp(&mut grid, *xy, '·');
         }
     }
 
-    for site_id in deployed.values() {
+    for site_id in marks.deployed.values() {
         if let Some(xy) = lookup(m.pos, site_id) {
             stamp(&mut grid, xy, '╫');
         }
@@ -137,35 +173,63 @@ pub fn render_map(
         stamp(&mut grid, xy, '▲');
     }
 
-    if tender_here {
+    if marks.tender_here {
         if let Some(xy) = lookup(m.tender_pos, camp_id) {
-            stamp(&mut grid, xy, '■');
+            stamp(&mut grid, xy, '▣');
         }
     }
 
-    for loc in skiff_sites.values() {
+    for (_, loc, kind) in marks.skiffs {
         if let Some(xy) = lookup(m.pos, loc) {
-            stamp(&mut grid, xy, '›');
+            let ch = if kind == "holding" { '»' } else { '›' };
+            stamp(&mut grid, xy, ch);
         }
     }
 
-    if let Some(cur) = cursor_site {
+    if let Some(cur) = marks.cursor_site {
         if let Some(xy) = lookup(m.pos, cur) {
             stamp(&mut grid, xy, '●');
         }
     }
 
-    for sid in transient_sites {
+    // Mammal / fish silhouettes sit beside the site mark so the node stays readable.
+    for sid in marks.transient_sites {
         if let Some((x, y)) = lookup(m.pos, sid) {
-            if y < grid.len() && x > 0 && x - 1 < grid[y].len() && grid[y][x - 1] == ' ' {
-                stamp(&mut grid, (x - 1, y), 'ω');
+            if x > 0 {
+                stamp_if_blank(&mut grid, (x - 1, y), 'ω');
+            }
+            if x > 1 {
+                stamp_if_blank(&mut grid, (x - 2, y), '≈');
             }
         }
     }
-    for sid in resident_sites {
+    for sid in marks.resident_sites {
         if let Some((x, y)) = lookup(m.pos, sid) {
-            if y < grid.len() && x > 0 && x - 1 < grid[y].len() && grid[y][x - 1] == ' ' {
-                stamp(&mut grid, (x - 1, y), 'r');
+            // Salmon silhouette: ><>
+            if x + 2 < grid.get(y).map(|r| r.len()).unwrap_or(0) {
+                stamp_if_blank(&mut grid, (x + 1, y), '>');
+                stamp_if_blank(&mut grid, (x + 2, y), '<');
+                if x + 3 < grid[y].len() {
+                    stamp_if_blank(&mut grid, (x + 3, y), '>');
+                }
+            } else if x > 2 {
+                stamp_if_blank(&mut grid, (x - 3, y), '>');
+                stamp_if_blank(&mut grid, (x - 2, y), '<');
+                stamp_if_blank(&mut grid, (x - 1, y), '>');
+            }
+        }
+    }
+    if marks.fish_showing {
+        for (sid, xy) in m.pos {
+            if marks.closed_sites.contains(*sid) {
+                continue;
+            }
+            let (x, y) = *xy;
+            if y + 1 < grid.len() {
+                stamp_if_blank(&mut grid, (x, y + 1), '>');
+                if x + 1 < grid[y + 1].len() {
+                    stamp_if_blank(&mut grid, (x + 1, y + 1), '<');
+                }
             }
         }
     }

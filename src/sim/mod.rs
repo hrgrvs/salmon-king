@@ -7,4 +7,5 @@ pub mod models;
 pub mod openings;
 pub mod rng;
 pub mod runs;
+pub mod status;
 pub mod weather;

@@ -81,10 +81,11 @@ Pinks are a two-year cycle. **Odd years flood. Even years are thin.** The year y
 
 ### Map, nets, crew, tender
 
-The main screen is one HUD:
+The main screen is one HUD. The **boats** pane (every skiff's job, place, crew, cargo) and **crew** activity in words sit beside the map so you can see what the boats and people are doing without opening a modal.
 
-- **Map** — your beaches, camp (`▲`), nets (`╫`), skiffs (`›`), tender (`■`). `←` `→` moves the site cursor (`●`). `enter` sets a net on that site. `p` pulls.
-- **Crew** — energy / hunger / morale bars and the job. Hire on the tender (`h`). Assign with `c`. A town run by the permit holder darkens the sets (you have to be on the site).
+- **Map** — your beaches, camp (`▲`), nets (`╫`), picking skiff (`›`) / holding skiff (`»`), tender (`▣`). `←` `→` moves the site cursor (`●`). `enter` sets a net on that site. `p` pulls. Transient orcas (`ω`) and salmon (`><>`) stamp a site when those events are live.
+- **Boats** — ASCII picker vs holding hull, where the skiff is, current job in words, assigned crew, cargo / fuel / condition.
+- **Crew** — name, role, current activity in words (picking at a named site, cooking, mending, sleeping, tender run, town, idle, sick, quit), plus energy / hunger / morale bars.
 - **Tender** — live $/lb and the last fish ticket. `t` sends the fullest skiff. `b` buys food, fuel, ice, twine, a prop, only while the boat is in the hole.
 - **Camp** — cash, food days, fuel, ice. Miss the tender and fish rot, or you stop picking when the holding skiff is full.
 
