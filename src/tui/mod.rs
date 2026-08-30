@@ -1,6 +1,8 @@
 //! Keyboard-first ratatui HUD. The sim is a client of this module, not the reverse.
 
+mod art;
 mod screens;
+mod theme;
 mod widgets;
 
 use std::io::{self, stdout};
@@ -13,32 +15,24 @@ use crossterm::terminal::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
 use salmon_king::data::camps::CAMP_IDS;
 use salmon_king::sim::engine::{new_game, Game};
 use salmon_king::sim::models::GameEnd;
 
+use art::{help_header, title_art_scaled, NEW_SEASON_HEAD};
 use screens::{
-    buy_items, crew_items, hire_items, mesh_items, pull_items, skiff_items, upgrade_items, ActionItem,
+    buy_items, crew_items, hire_items, mesh_items, pull_items, skiff_items, upgrade_items,
+    ActionItem,
 };
-use widgets::{
-    render_camp, render_clock, render_crew, render_log, render_map_panel, render_tender,
+use theme::{
+    body, cork_bold, dark_tag, foam_bold, muted, open_tag, CARD, CORK, FOAM, HUD, NIGHT, WOOL,
 };
-
-const BG: Color = Color::Rgb(14, 20, 24);
-const CARD: Color = Color::Rgb(18, 27, 33);
-const HUD_BG: Color = Color::Rgb(26, 36, 43);
-const TITLE: Color = Color::Rgb(232, 213, 181);
-const MUTED: Color = Color::Rgb(143, 163, 173);
-const FLAVOR: Color = Color::Rgb(196, 180, 154);
-const COPPER: Color = Color::Rgb(180, 83, 42);
-const MAP_BORDER: Color = Color::Rgb(61, 90, 76);
-const OPEN: Color = Color::Rgb(143, 188, 143);
-const DARK: Color = Color::Rgb(196, 92, 74);
+use widgets::{draw_boats, draw_camp, draw_clock, draw_crew, draw_log, draw_map, draw_tender};
 
 pub fn run() -> io::Result<()> {
     enable_raw_mode()?;
@@ -121,14 +115,22 @@ fn interval(speed: u32) -> Duration {
     }
 }
 
-fn app_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
+fn app_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+) -> io::Result<()> {
     while !app.should_quit {
         terminal.draw(|f| draw(f, app))?;
 
         let timeout = match &app.screen {
-            Screen::Play(p) if matches!(p.overlay, Overlay::None) && !p.paused && p.game.end == GameEnd::None => {
+            Screen::Play(p)
+                if matches!(p.overlay, Overlay::None)
+                    && !p.paused
+                    && p.game.end == GameEnd::None =>
+            {
                 let due = p.last_tick + interval(p.speed);
-                due.saturating_duration_since(Instant::now()).min(Duration::from_millis(50))
+                due.saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(50))
             }
             _ => Duration::from_millis(100),
         };
@@ -255,7 +257,10 @@ fn handle_key_play(app: &mut App, key: KeyEvent) {
     };
     match &mut p.overlay {
         Overlay::Help => {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')) {
+            if matches!(
+                key.code,
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')
+            ) {
                 p.overlay = Overlay::None;
             }
         }
@@ -475,7 +480,7 @@ fn apply_action(game: &mut Game, kind: &str, ident: &str, cursor: Option<&str>) 
 fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
     f.render_widget(
-        Block::default().style(Style::default().bg(BG).fg(FLAVOR)),
+        Block::default().style(Style::default().bg(NIGHT).fg(FOAM)),
         area,
     );
     match &app.screen {
@@ -486,42 +491,49 @@ fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_title(f: &mut Frame, area: Rect) {
-    let card = centered(area, 78, 14);
+    let h = area.height.min(30).max(16);
+    let w = area.width.min(78).max(60);
+    let card = centered(area, w, h);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(COPPER))
-        .style(Style::default().bg(CARD).fg(FLAVOR));
+        .border_style(Style::default().fg(CORK))
+        .style(Style::default().bg(CARD).fg(FOAM));
     let inner = block.inner(card);
     f.render_widget(block, card);
-    let lines = vec![
-        Line::from(Span::styled(
-            "S A L M O N   K I N G",
-            Style::default().fg(TITLE).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            "Kodiak Island · S04K set gillnet · one summer",
-            Style::default().fg(MUTED),
-        )),
-        Line::from(""),
-        Line::from("Two nets, a couple of skiffs, a cook who doesn't quit,"),
-        Line::from("and an emergency order on the VHF. That's a season."),
-        Line::from("Central Section or inner Alitak. Nowhere else."),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  n  New season     q  Quit",
-            Style::default().fg(TITLE),
-        )),
-    ];
-    f.render_widget(Paragraph::new(lines).alignment(ratatui::layout::Alignment::Center), inner);
+
+    let mut lines = title_art_scaled(inner.height);
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Two nets, a couple of skiffs, a cook who doesn't quit,",
+        body(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "and an emergency order on the VHF. That's a season.",
+        body(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Central Section or inner Alitak. Nowhere else.",
+        muted(),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  n  New season          q  Quit",
+        foam_bold(),
+    )));
+    f.render_widget(
+        Paragraph::new(lines).alignment(ratatui::layout::Alignment::Center),
+        inner,
+    );
 }
 
 fn draw_new_season(f: &mut Frame, area: Rect, ns: &NewSeason) {
-    let card = centered(area, 80, 20);
+    let card = centered(area, 80, 24);
     let block = Block::default()
         .title(" NEW SEASON — pick a camp, a year, a seed ")
+        .title_style(foam_bold())
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(COPPER))
-        .style(Style::default().bg(CARD).fg(FLAVOR));
+        .border_style(Style::default().fg(CORK))
+        .style(Style::default().bg(CARD).fg(FOAM));
     let inner = block.inner(card);
     f.render_widget(block, card);
 
@@ -531,26 +543,43 @@ fn draw_new_season(f: &mut Frame, area: Rect, ns: &NewSeason) {
         "Olga Bay — Alitak pulse water, tender-dependent",
         "Port Bailey / Dry Spruce — Kupreanof williwaws, nearer town",
     ];
-    let mut lines = vec![
-        Line::from("Odd years: pink flood. Even years: thin pinks."),
-        Line::from("Known years (2023–2025) use that year's Kodiak prelim $/lb table."),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Camp  (↑↓)  Tab year/seed  Enter start  Esc back",
-            Style::default().fg(MUTED),
-        )),
-    ];
+    let mut lines: Vec<Line> = NEW_SEASON_HEAD
+        .iter()
+        .map(|row| Line::from(Span::styled((*row).to_string(), muted())))
+        .collect();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Odd years: pink flood. Even years: thin pinks.",
+        body(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Known years (2023–2025) use that year's Kodiak prelim $/lb table.",
+        muted(),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Camp  (↑↓)  Tab year/seed  Enter start  Esc back",
+        muted(),
+    )));
     for (i, label) in camps.iter().enumerate() {
         let mark = if i == ns.camp_i { "●" } else { " " };
         let style = if i == ns.camp_i && matches!(ns.field, Field::Camp) {
-            Style::default().fg(TITLE).add_modifier(Modifier::BOLD)
+            foam_bold()
         } else {
-            Style::default()
+            body()
         };
         lines.push(Line::from(Span::styled(format!(" {mark} {label}"), style)));
     }
-    let y_mark = if matches!(ns.field, Field::Year) { ">" } else { " " };
-    let s_mark = if matches!(ns.field, Field::Seed) { ">" } else { " " };
+    let y_mark = if matches!(ns.field, Field::Year) {
+        ">"
+    } else {
+        " "
+    };
+    let s_mark = if matches!(ns.field, Field::Seed) {
+        ">"
+    } else {
+        " "
+    };
     lines.push(Line::from(""));
     lines.push(Line::from(format!("{y_mark} Year  [{}]", ns.year)));
     lines.push(Line::from(format!("{s_mark} Seed  [{}]", ns.seed)));
@@ -558,12 +587,30 @@ fn draw_new_season(f: &mut Frame, area: Rect, ns: &NewSeason) {
 }
 
 fn draw_play(f: &mut Frame, area: Rect, p: &Play) {
+    // Full-width boats strip so both skiffs stay readable at 80x24.
+    let boats_h = if area.height >= 32 { 9 } else { 6 };
+    let mid_h = if area.height >= 36 {
+        8
+    } else if area.height >= 28 {
+        7
+    } else {
+        5
+    };
+    let log_h = if area.height >= 34 {
+        7
+    } else if area.height >= 28 {
+        5
+    } else {
+        3
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Min(12),
-            Constraint::Length(8),
+            Constraint::Min(8),
+            Constraint::Length(boats_h),
+            Constraint::Length(mid_h),
+            Constraint::Length(log_h),
             Constraint::Length(1),
         ])
         .split(area);
@@ -575,9 +622,9 @@ fn draw_play(f: &mut Frame, area: Rect, p: &Play) {
     };
     let tag = if p.game.any_open() { "OPEN" } else { "DARK" };
     let tag_style = if p.game.any_open() {
-        Style::default().fg(OPEN).add_modifier(Modifier::BOLD)
+        open_tag()
     } else {
-        Style::default().fg(DARK).add_modifier(Modifier::BOLD)
+        dark_tag()
     };
     let hud = Line::from(vec![
         Span::styled(
@@ -587,11 +634,14 @@ fn draw_play(f: &mut Frame, area: Rect, p: &Play) {
                 p.game.day.fmt_short(),
                 p.game.tide.as_str()
             ),
-            Style::default().fg(TITLE).add_modifier(Modifier::BOLD).bg(HUD_BG),
+            foam_bold().bg(HUD),
         ),
-        Span::styled(format!("{tag}   {spd}   S04K "), tag_style.bg(HUD_BG)),
+        Span::styled(format!("{tag}   {spd}   S04K "), tag_style.bg(HUD)),
     ]);
-    f.render_widget(Paragraph::new(hud).style(Style::default().bg(HUD_BG)), chunks[0]);
+    f.render_widget(
+        Paragraph::new(hud).style(Style::default().bg(HUD)),
+        chunks[0],
+    );
 
     let body = Layout::default()
         .direction(Direction::Horizontal)
@@ -599,52 +649,32 @@ fn draw_play(f: &mut Frame, area: Rect, p: &Play) {
         .split(chunks[1]);
 
     let sites = p.game.playable_sites();
-    let cursor = sites
-        .get(p.cursor_i % sites.len().max(1))
-        .map(|s| s.id);
-    let map_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(MAP_BORDER))
-        .title(" map ");
-    let map_inner = map_block.inner(body[0]);
-    f.render_widget(map_block, body[0]);
-    f.render_widget(
-        Paragraph::new(render_map_panel(&p.game, cursor)).style(Style::default().fg(FLAVOR)),
-        map_inner,
-    );
+    let cursor = sites.get(p.cursor_i % sites.len().max(1)).map(|s| s.id);
+    draw_map(f, body[0], &p.game, cursor);
+    draw_crew(f, body[1], &p.game);
 
-    let side = Layout::default()
-        .direction(Direction::Vertical)
+    draw_boats(f, chunks[2], &p.game);
+
+    let mid = Layout::default()
+        .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(34),
-            Constraint::Percentage(18),
-            Constraint::Percentage(24),
-            Constraint::Percentage(24),
+            Constraint::Percentage(36),
+            Constraint::Percentage(32),
+            Constraint::Percentage(32),
         ])
-        .split(body[1]);
+        .split(chunks[3]);
+    draw_camp(f, mid[0], &p.game);
+    draw_tender(f, mid[1], &p.game);
+    draw_clock(f, mid[2], &p.game);
 
-    panel(f, side[0], " crew ", &render_crew(&p.game));
-    panel(f, side[1], " tender ", &render_tender(&p.game));
-    panel(f, side[2], " camp ", &render_camp(&p.game));
-    panel(f, side[3], " clock ", &render_clock(&p.game));
-
-    let log_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Rgb(90, 61, 42)))
-        .title(" event log ");
-    let log_inner = log_block.inner(chunks[2]);
-    f.render_widget(log_block, chunks[2]);
-    f.render_widget(
-        Paragraph::new(render_log(&p.game, 6)).style(Style::default().fg(FLAVOR)),
-        log_inner,
-    );
+    draw_log(f, chunks[4], &p.game);
 
     f.render_widget(
         Paragraph::new(
             " space pause  1/4/x speed  ←→ site  enter set  p pull  s skiff  c crew  h hire  b buy  u upg  t tender  ? help  q quit",
         )
-        .style(Style::default().fg(MUTED).bg(HUD_BG)),
-        chunks[3],
+        .style(Style::default().fg(WOOL).bg(HUD)),
+        chunks[5],
     );
 
     match &p.overlay {
@@ -694,34 +724,52 @@ impl Play {
     }
 }
 
-fn panel(f: &mut Frame, area: Rect, title: &str, body: &str) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Rgb(61, 74, 82)))
-        .title(title);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    f.render_widget(Paragraph::new(body.to_string()).style(Style::default().fg(FLAVOR)), inner);
-}
-
 fn draw_help(f: &mut Frame, area: Rect) {
-    let text = "\
-KEYS\n\
-  space pause/run    1 4 x speeds (1x / 4x / 16x)\n\
-  ← →  site cursor   enter  set a net on the highlighted site\n\
-  p    pull nets      s     skiff job     c  crew assign\n\
-  h    hire           b     buy from tender   u  upgrade camp\n\
-  j    joint venture (2nd S04K, 3rd net)   t  send a skiff to the tender\n\
-  m    mesh knob      ? help   q quit\n\n\
-A TIDE is one tick (flood or ebb; two a day). Nets only fish during an EO opener,\n\
-and only if the permit holder is on the site. Pull on a closer. Pick 2+ times a day\n\
-or the lions and the sun do it for you. Tender buys fish and sells food/fuel/ice.\n\
-Transients (ω) chase Stellers and seals off a bay — they do not pick your salmon.\n\
-Residents (r) make fish dive; lions stay. Mixed blessing, written on the map.\n\n\
-Legal water: Central Section (west-side Shelikof) or Alitak inner bays.\n\
-Karluk, Ayakulik, Afognak, Eastside = seiners. You can see them. You don't set there.\n\
-esc / ?";
-    draw_modal(f, area, " help ", text);
+    let mut lines = help_header();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("KEYS", cork_bold())));
+    for row in [
+        "  space pause/run    1 4 x speeds (1x / 4x / 16x)",
+        "  ← →  site cursor   enter  set a net on the highlighted site",
+        "  p    pull nets      s     skiff job     c  crew assign",
+        "  h    hire           b     buy from tender   u  upgrade camp",
+        "  j    joint venture (2nd S04K, 3rd net)   t  send a skiff to the tender",
+        "  m    mesh knob      ? help   q quit",
+    ] {
+        lines.push(Line::from(Span::styled(row, body())));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "A TIDE is one tick (flood or ebb; two a day). Nets only fish during an EO opener,",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "and only if the permit holder is on the site. Pull on a closer. Pick 2+ times a day",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "or the lions and the sun do it for you. Tender buys fish and sells food/fuel/ice.",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Transients (ω) chase Stellers off a bay — they do not pick your salmon.",
+        body(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Residents (><>) make fish dive; lions stay. Mixed blessing, written on the map.",
+        body(),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Legal water: Central Section (west-side Shelikof) or Alitak inner bays.",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Karluk, Ayakulik, Afognak, Eastside = seiners. You can see them. You don't set there.",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled("esc / ?", foam_bold())));
+    draw_modal_lines(f, area, " help ", lines);
 }
 
 fn draw_quit(f: &mut Frame, area: Rect) {
@@ -744,28 +792,167 @@ fn draw_picker(f: &mut Frame, area: Rect, title: &str, items: &[ActionItem], sel
 }
 
 fn draw_modal(f: &mut Frame, area: Rect, title: &str, body: &str) {
-    let lines = body.lines().count() as u16 + 2;
-    let width = body
-        .lines()
-        .map(|l| l.chars().count())
+    let lines: Vec<Line> = body.lines().map(|l| Line::from(l.to_string())).collect();
+    draw_modal_lines(f, area, title, lines);
+}
+
+fn draw_modal_lines(f: &mut Frame, area: Rect, title: &str, lines: Vec<Line>) {
+    let height = lines.len() as u16 + 2;
+    let width = lines
+        .iter()
+        .map(|l| l.width())
         .max()
         .unwrap_or(40)
         .clamp(40, 86) as u16
         + 4;
-    let card = centered(area, width.min(area.width.saturating_sub(2)), lines.min(area.height.saturating_sub(2)));
+    let card = centered(
+        area,
+        width.min(area.width.saturating_sub(2)),
+        height.min(area.height.saturating_sub(2)),
+    );
     f.render_widget(Clear, card);
     let block = Block::default()
         .title(format!(" {title} "))
+        .title_style(foam_bold())
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(COPPER))
-        .style(Style::default().bg(CARD).fg(FLAVOR));
+        .border_style(Style::default().fg(CORK))
+        .style(Style::default().bg(CARD).fg(FOAM));
     let inner = block.inner(card);
     f.render_widget(block, card);
-    f.render_widget(Paragraph::new(body.to_string()), inner);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
+
+#[cfg(test)]
+mod hud_tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+
+    fn dump(backend: &TestBackend) -> String {
+        let buf = backend.buffer();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn play_app() -> App {
+        let game = new_game(1701, "uganik", 2025).expect("game");
+        App {
+            screen: Screen::Play(Play {
+                game,
+                speed: 1,
+                paused: true,
+                cursor_i: 0,
+                overlay: Overlay::None,
+                last_tick: Instant::now(),
+                recap_text: String::new(),
+            }),
+            should_quit: false,
+        }
+    }
+
+    #[test]
+    fn title_keys_fit_twenty_four_rows() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App {
+            screen: Screen::Title,
+            should_quit: false,
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(text.contains("S A L M O N"), "{text}");
+        assert!(text.to_ascii_lowercase().contains("new season"), "{text}");
+    }
+
+    #[test]
+    fn title_is_illustrated() {
+        let backend = TestBackend::new(80, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App {
+            screen: Screen::Title,
+            should_quit: false,
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(text.contains("S A L M O N"), "{text}");
+        assert!(
+            text.contains("corkline") || text.contains("cabin") || text.contains(",-="),
+            "{text}"
+        );
+        assert!(
+            text.contains("n") && text.to_ascii_lowercase().contains("new season"),
+            "{text}"
+        );
+        assert!(text.contains("Quit") || text.contains("q  Quit"), "{text}");
+    }
+
+    #[test]
+    fn hud_answers_boats_and_crew_at_a_glance() {
+        let backend = TestBackend::new(100, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = play_app();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(
+            text.contains("boats") || text.contains("BOATS") || text.contains("PICKING SKIFF"),
+            "{text}"
+        );
+        assert!(
+            text.contains("HOLDING SKIFF") || text.contains("Holding"),
+            "{text}"
+        );
+        assert!(text.contains("idle in the hole"), "{text}");
+        assert!(text.contains("picking"), "{text}");
+        assert!(text.contains("cooking"), "{text}");
+        assert!(text.contains("crew"), "{text}");
+    }
+
+    #[test]
+    fn help_and_toasts_use_the_same_look() {
+        let backend = TestBackend::new(80, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = play_app();
+        if let Screen::Play(p) = &mut app.screen {
+            p.overlay = Overlay::Help;
+        }
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(text.contains("corkline") || text.contains(",-="), "{text}");
+        assert!(text.contains("KEYS") || text.contains("space"), "{text}");
+
+        if let Screen::Play(p) = &mut app.screen {
+            p.overlay = Overlay::None;
+            p.game.note("Williwaw. Katabatic, no warning. Skiffs stay on the running line if you like them.", "weather");
+            p.game.weather.williwaw = true;
+        }
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(
+            text.contains("WILLIWAW") || text.contains("katabatic") || text.contains("Williwaw"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn hud_fits_eighty_by_twenty_four() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = play_app();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(text.contains("idle in the hole"), "{text}");
+        assert!(text.contains("picking"), "{text}");
+        assert!(text.contains("cooking"), "{text}");
+    }
 }
