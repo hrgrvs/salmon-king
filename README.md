@@ -89,7 +89,7 @@ The main screen is one HUD. The **boats** pane (every skiff's job, place, crew, 
 - **Bay** — a small chart of *this camp's* home water: camp labeled, boats live (a skiff in transit moves), whales (`ω`) whenever they occupy the bay, seals (`S`) **only while a skiff is picking** that site.
 - **VHF** — ASCII radio face. `r` calls a skiff, a hand, the **tender** (live $/lb board + fishing rumors), or listens to **16**. Tender gossip is chatter and can be wrong. ADF&G is gospel: a once-a-day official report plus openers/closures when they actually change (not every dark tide).
 - **Tender** — live $/lb and the last fish ticket. `t` sends the fullest skiff. `b` buys food, fuel, ice, twine, a prop, only while the boat is in the hole.
-- **Camp** — cash, food days, fuel, ice. Miss the tender and fish rot, or you stop picking when the holding skiff is full.
+- **Camp** — cash, food days, fuel, ice. Miss the tender and fish rot, or you stop picking when the holding skiff is full. A real alongside (not radio gossip) hands the visiting crew a small galley snack — cookies, brownies, a slice of cake, garlic bread, cinnamon roll, leftover pie. Hunger eases and morale ticks up; cook's food is still the meal. Same-day repeats shrink, then stop.
 
 ### Emergency orders
 
@@ -130,7 +130,7 @@ This is a sim chain, not flavor. **Transient killer whales in a bay run the sea 
 
 ### Hints
 
-New seasons start with **hints on**. They are skipper asides / cook mutters — one at a time, at the bottom of the HUD — not a tutorial modal. They fire when something actually needs doing (first opener, closer with gear in, hold filling, food/fuel short, crew about to walk, williwaw, town run, pink push, June tests if Karluk is weak). No hint if you already did the thing. `i` turns them off or back on for the rest of this season. `esc` dismisses the current aside.
+New seasons start with **hints on**. They are skipper asides / cook mutters — one at a time, at the bottom of the HUD — not a tutorial modal. They fire when something actually needs doing (first opener, closer with gear in, hold filling, food/fuel short, crew about to walk, williwaw, town run, pink push, June tests if Karluk is weak, tender galley snack once). No hint if you already did the thing. `i` turns them off or back on for the rest of this season. `esc` dismisses the current aside.
 
 Official ADF&G traffic on 16 is the source of truth for openers. Hints may point at it. Tender rumors are never treated as hints-of-record.
 

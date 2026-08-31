@@ -158,6 +158,9 @@ pub struct Game {
     pub hint: Option<Hint>,
     pub hint_seen: HashSet<String>,
     pub hint_snooze_tick: i32,
+    pub treats_today: i32,
+    pub last_treat_doy: i32,
+    pub last_treat: Option<String>,
 }
 
 impl Game {
@@ -938,13 +941,76 @@ ${fine:.0} (game fine) and the net is on the beach."
             }
             c.accrued_share += pay * c.share;
         }
+        let riders = self.treat_riders(skiff_i);
         self.skiffs[skiff_i].cargo = Lbs::default();
         self.skiffs[skiff_i].cargo_quality = 1.0;
         self.skiffs[skiff_i].location = "camp".into();
         self.skiffs[skiff_i].job = SkiffJob::Idle;
         let note = self.tender.last_note.clone();
         self.note(format!("Fish ticket: {note}"), "market");
+        self.hand_tender_treat(riders);
         pay
+    }
+
+    /// Galley snack on a real alongside. Not radio gossip. Not a meal.
+    fn hand_tender_treat(&mut self, riders: Vec<usize>) {
+        if !self.tender.present || self.tender.late || riders.is_empty() {
+            return;
+        }
+        let doy = self.day.doy();
+        if self.last_treat_doy != doy {
+            self.last_treat_doy = doy;
+            self.treats_today = 0;
+        }
+        if self.treats_today >= 3 {
+            return;
+        }
+        const TREATS: [&str; 6] = [
+            "cookies",
+            "brownies",
+            "a slice of cake",
+            "garlic bread",
+            "cinnamon roll",
+            "leftover pie",
+        ];
+        // Derived from the season seed + this visit — do not spend the sim RNG.
+        let mix = self
+            .rng
+            .seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(self.tick as u64)
+            .wrapping_add((self.treats_today as u64).wrapping_shl(8))
+            .wrapping_add(self.day.doy() as u64);
+        let snack = TREATS[(mix as usize) % TREATS.len()].to_string();
+        let n = self.treats_today;
+        let (hunger_cut, morale_up) = match n {
+            0 => (14.0, 8.0),
+            1 => (7.0, 3.0),
+            _ => (3.0, 1.0),
+        };
+        self.treats_today += 1;
+        self.last_treat = Some(snack.clone());
+        for i in riders {
+            self.crew[i].hunger = (self.crew[i].hunger - hunger_cut).max(0.0);
+            self.crew[i].morale = (self.crew[i].morale + morale_up).min(100.0);
+        }
+        let line = format!("tender treat: {snack}");
+        self.note(&line, "camp");
+        self.push_radio(RadioVoice::Tender, RadioKind::Reply, "68", &line);
+    }
+
+    fn treat_riders(&self, skiff_i: usize) -> Vec<usize> {
+        let mut out = self.crew_on(skiff_i);
+        let sid = self.skiffs[skiff_i].id.as_str();
+        for (i, c) in self.crew.iter().enumerate() {
+            if matches!(c.status, CrewStatus::Quit | CrewStatus::Sick) {
+                continue;
+            }
+            if c.assigned.as_deref() == Some(sid) && !out.contains(&i) {
+                out.push(i);
+            }
+        }
+        out
     }
 
     /// Settle by skiff identity (used by tests that hold a skiff handle conceptually).
@@ -1578,6 +1644,9 @@ pub fn new_game(seed: u64, camp_id: &str, year: i32) -> Result<Game, String> {
         hint: None,
         hint_seen: HashSet::new(),
         hint_snooze_tick: 0,
+        treats_today: 0,
+        last_treat_doy: 0,
+        last_treat: None,
     };
 
     let owner = CrewMember {

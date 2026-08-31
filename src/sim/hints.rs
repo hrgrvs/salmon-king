@@ -183,12 +183,27 @@ pub fn tick_hints(game: &mut Game) {
         });
     }
     if game.tender.present && cargo_out {
+        let text = if game.last_treat.is_none() {
+            "Hit the tender, they have garlic bread. Weigh it (t) before they pull the hook.".into()
+        } else {
+            "Tender's in the hole with fish on the skiff. Weigh it (t) before they pull the hook."
+                .into()
+        };
         cands.push(Cand {
             id: "tender_in_hole",
             urgency: Urgency::Soon,
             once: false,
             snooze: 6,
-            text: "Tender's in the hole with fish on the skiff. Weigh it (t) before they pull the hook."
+            text,
+        });
+    }
+    if game.tender.present && !game.tender.late && game.last_treat.is_none() {
+        cands.push(Cand {
+            id: "tender_treat",
+            urgency: Urgency::Wait,
+            once: true,
+            snooze: 0,
+            text: "Hit the tender, they have garlic bread. Snack, not supper — cook still matters."
                 .into(),
         });
     }

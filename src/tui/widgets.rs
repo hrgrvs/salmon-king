@@ -263,6 +263,12 @@ pub fn draw_radio(f: &mut Frame, area: Rect, game: &Game) {
             Span::styled(ad.text.clone(), foam_bold()),
         ]));
     }
+    if let Some(snack) = &game.last_treat {
+        lines.push(Line::from(vec![
+            Span::styled("  .--. ", Style::default().fg(CORK)),
+            Span::styled(format!("treat: {snack}"), kelp_bold()),
+        ]));
+    }
     if game.radio.is_empty() {
         lines.push(Line::from(Span::styled(
             "  squelch. r  call a skiff, hand, tender, or 16.",
@@ -527,7 +533,7 @@ pub fn draw_tender(f: &mut Frame, area: Rect, game: &Game) {
         .map(|&sp| format!("{} ${:.2}", short_code(sp), p.get(sp)))
         .collect::<Vec<_>>()
         .join("  ");
-    let lines = vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::styled(format!("{}  ", game.tender.name), foam_bold()),
             eta.spans.first().cloned().unwrap_or_else(|| Span::raw("")),
@@ -539,6 +545,16 @@ pub fn draw_tender(f: &mut Frame, area: Rect, game: &Game) {
             muted(),
         )),
     ];
+    if let Some(snack) = &game.last_treat {
+        lines.push(Line::from(vec![
+            Span::styled("  .--. ", Style::default().fg(CORK)),
+            Span::styled(format!("tender treat: {snack}"), kelp_bold()),
+        ]));
+        lines.push(Line::from(Span::styled(
+            " |____|",
+            Style::default().fg(CORK),
+        )));
+    }
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
 }
 

@@ -25,11 +25,11 @@ use salmon_king::sim::engine::{new_game, Game};
 use salmon_king::sim::models::GameEnd;
 
 use art::{help_header, title_art_scaled, NEW_SEASON_HEAD};
+use salmon_king::sim::hints::{dismiss_hint, set_hints};
 use screens::{
     buy_items, crew_items, hire_items, mesh_items, pull_items, radio_items, skiff_items,
     upgrade_items, ActionItem,
 };
-use salmon_king::sim::hints::{dismiss_hint, set_hints};
 use theme::{
     body, cork_bold, dark_tag, foam_bold, muted, open_tag, CARD, CORK, FOAM, HUD, NIGHT, WOOL,
 };
@@ -1000,6 +1000,38 @@ mod hud_tests {
         );
         assert!(
             text.contains("CAMP") || text.contains("bay") || text.contains("Uganik"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn hud_shows_tender_treat_after_alongside() {
+        use salmon_king::sim::models::Lbs;
+        let backend = TestBackend::new(100, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = play_app();
+        let snack = if let Screen::Play(p) = &mut app.screen {
+            p.game.tender.present = true;
+            p.game.tender.late = false;
+            p.game.skiffs[0].cargo = Lbs {
+                red: 80.0,
+                ..Lbs::default()
+            };
+            p.game.skiffs[0].cargo_quality = 1.0;
+            p.game.settle(0);
+            p.game.last_treat.clone().expect("treat after visit")
+        } else {
+            panic!("play");
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(
+            text.contains("tender treat") || text.contains("treat:"),
+            "{text}"
+        );
+        assert!(text.contains(&snack), "{text}");
+        assert!(
+            text.contains("Energy") && text.contains("Hunger") && text.contains("Morale"),
             "{text}"
         );
     }
