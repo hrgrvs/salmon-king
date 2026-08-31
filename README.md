@@ -85,7 +85,9 @@ The main screen is one HUD. The **boats** pane (every skiff's job, place, crew, 
 
 - **Map** — your beaches, camp (`▲`), nets (`╫`), picking skiff (`›`) / holding skiff (`»`), tender (`▣`). `←` `→` moves the site cursor (`●`). `enter` sets a net on that site. `p` pulls. Transient orcas (`ω`) and salmon (`><>`) stamp a site when those events are live.
 - **Boats** — ASCII picker vs holding hull, where the skiff is, current job in words, assigned crew, cargo / fuel / condition.
-- **Crew** — name, role, current activity in words (picking at a named site, cooking, mending, sleeping, tender run, town, idle, sick, quit), plus energy / hunger / morale bars.
+- **Crew** — name, role, current activity in words (picking at a named site, cooking, mending, sleeping, tender run, town, idle, sick, quit), plus **Energy / Hunger / Morale** bars (full words; they wrap or stack if the pane is tight).
+- **Bay** — a small chart of *this camp's* home water: camp labeled, boats live (a skiff in transit moves), whales (`ω`) whenever they occupy the bay, seals (`S`) **only while a skiff is picking** that site.
+- **VHF** — ASCII radio face. `r` calls a skiff, a hand, the **tender** (live $/lb board + fishing rumors), or listens to **16**. Tender gossip is chatter and can be wrong. ADF&G is gospel: a once-a-day official report plus openers/closures when they actually change (not every dark tide).
 - **Tender** — live $/lb and the last fish ticket. `t` sends the fullest skiff. `b` buys food, fuel, ice, twine, a prop, only while the boat is in the hole.
 - **Camp** — cash, food days, fuel, ice. Miss the tender and fish rot, or you stop picking when the holding skiff is full.
 
@@ -95,7 +97,9 @@ One tick is one tide (flood, then ebb; two a day). Nets fish only during a gener
 
 Westside clock (5 AAC 18.362, generated, not a 2026 EO list): June tests (33-hour), Karluk-early reds passing the beaches, July–August pinks, late reds, then skeleton-crew coho. Weak Karluk early can mean those June tests are all you get until 6 July. Alitak (5 AAC 18.361): 5–7 days open per 10, then 63 hours dark unless the weirs will make it.
 
-`space` pause. `1` / `4` / `x` = 1× / 4× / 16×. Season runs 1 June–18 September (game tear-down).
+`space` pause. `1` / `4` / `x` = 1× / 4× / 16×. Between emergency orders the camp still works: mend, rest, listen to 16. Speed up through the dark without getting lost — the radio and clock say when you're open. Season runs 1 June–18 September (game tear-down).
+
+A skipper who sets on the opener, picks, ices, hits the tender, feeds the crew, and pulls on the closer can make the nut in a typical **odd** year. A **even** year is a fight. Sit on the beach all summer and you winter in the red. Bankruptcy, wrecked skiffs, and an empty bunkhouse still end it.
 
 ### Orcas and sea lions
 
@@ -117,9 +121,18 @@ This is a sim chain, not flavor. **Transient killer whales in a bay run the sea 
 | `u` | Upgrade camp |
 | `j` | Joint venture (second S04K → third net) |
 | `t` | Send the fullest skiff to the tender |
+| `r` | VHF — call a skiff, crew, tender, or listen to ADF&G |
+| `i` | Toggle hints for this season (default **on**) |
+| `esc` | Dismiss the current hint aside (does not turn hints off) |
 | `m` | Mesh knob (game selectivity, not a legal mesh spec) |
 | `?` | Help |
 | `q` | Quit (confirm) |
+
+### Hints
+
+New seasons start with **hints on**. They are skipper asides / cook mutters — one at a time, at the bottom of the HUD — not a tutorial modal. They fire when something actually needs doing (first opener, closer with gear in, hold filling, food/fuel short, crew about to walk, williwaw, town run, pink push, June tests if Karluk is weak). No hint if you already did the thing. `i` turns them off or back on for the rest of this season. `esc` dismisses the current aside.
+
+Official ADF&G traffic on 16 is the source of truth for openers. Hints may point at it. Tender rumors are never treated as hints-of-record.
 
 Season ends 18 September and scores the books and who stayed. Early fail: bankrupt, every skiff wrecked, or nobody left who will pick. Grade is a letter plus a nickname.
 

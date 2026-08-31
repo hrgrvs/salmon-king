@@ -1,5 +1,7 @@
 //! Deterministic season engine. Pure sim. TUI is a client.
 
+use std::collections::HashSet;
+
 use crate::data::camps::{camp as camp_by_id, CampDef};
 use crate::data::crew_pool::{candidate, starting_hire, CANDIDATES, OWNER_NAME};
 use crate::data::sites::{is_playable, is_pulse_alitak, site, sites_for_camp, SiteDef};
@@ -9,6 +11,7 @@ use crate::sim::clock::{
     advance, phase_label, season_end, season_start, tides_in_season, GameDate, Tide,
 };
 use crate::sim::events::maybe_fire;
+use crate::sim::hints::{tick_hints, Hint};
 use crate::sim::mammals::{
     new_wildlife, pinnipeds_present, resident_scatter, status_lines, tick_wildlife, Wildlife,
 };
@@ -17,6 +20,11 @@ use crate::sim::models::{
     SkiffJob, Tender, Weather,
 };
 use crate::sim::openings::{current_window, generate_openings, generate_run_mods, is_open};
+use crate::sim::radio::{
+    first_name, official_closer_text, official_daily_text, official_opener_text, order_copy,
+    order_tx, radio_skiff_handle, spin_tender_rumor, tender_on_the_grounds, tender_price_board,
+    RadioKind, RadioLine, RadioVoice,
+};
 use crate::sim::rng::Rng;
 use crate::sim::runs::site_availability;
 use crate::sim::weather::{roll_weather, skiffs_grounded};
@@ -28,7 +36,7 @@ const PICKER_CAP: f64 = 520.0;
 
 fn buy_table(item: &str) -> Option<(f64, f64)> {
     match item {
-        "food" => Some((18.0, 160.0)),
+        "food" => Some((20.0, 145.0)),
         "fuel" => Some((40.0, 170.0)),
         "ice" => Some((20.0, 55.0)),
         "twine" => Some((1.0, 90.0)),
@@ -142,6 +150,14 @@ pub struct Game {
     pub midseason_cut: bool,
     pub last_open: bool,
     pub payday_counter: i32,
+    pub radio: Vec<RadioLine>,
+    pub last_official_doy: i32,
+    pub last_radio_open: Option<bool>,
+    pub last_radio_extended: bool,
+    pub hints_on: bool,
+    pub hint: Option<Hint>,
+    pub hint_seen: HashSet<String>,
+    pub hint_snooze_tick: i32,
 }
 
 impl Game {
@@ -196,6 +212,197 @@ impl Game {
         if self.log.len() > 400 {
             let keep = self.log.split_off(self.log.len() - 300);
             self.log = keep;
+        }
+    }
+
+    pub fn push_radio(
+        &mut self,
+        voice: RadioVoice,
+        kind: RadioKind,
+        channel: &'static str,
+        text: impl Into<String>,
+    ) {
+        self.radio.push(RadioLine {
+            tick: self.tick,
+            voice,
+            kind,
+            channel,
+            text: text.into(),
+            rumor_truth: None,
+        });
+        if self.radio.len() > 80 {
+            let keep = self.radio.split_off(self.radio.len() - 50);
+            self.radio = keep;
+        }
+    }
+
+    pub fn last_radio(&self, voice: RadioVoice) -> Option<&RadioLine> {
+        self.radio.iter().rev().find(|l| l.voice == voice)
+    }
+
+    fn radio_official_tick(&mut self) {
+        let open = self.any_open();
+        if self.last_radio_open != Some(open) {
+            if open {
+                let msg = official_opener_text(self);
+                self.push_radio(RadioVoice::Adfg, RadioKind::Opener, "16", &msg);
+                self.note(&msg, "adfg");
+            } else if self.last_radio_open == Some(true) {
+                let msg = official_closer_text(self);
+                self.push_radio(RadioVoice::Adfg, RadioKind::Closer, "16", &msg);
+                self.note(&msg, "adfg");
+            }
+            self.last_radio_open = Some(open);
+        }
+        if self.extend_open_tides > 0 && !self.last_radio_extended {
+            let msg = official_opener_text(self);
+            self.push_radio(RadioVoice::Adfg, RadioKind::Opener, "16", &msg);
+            self.last_radio_extended = true;
+        }
+        if self.extend_open_tides == 0 {
+            self.last_radio_extended = false;
+        }
+        let n = self.day.doy();
+        if self.last_official_doy != n {
+            self.last_official_doy = n;
+            let report = official_daily_text(self);
+            self.push_radio(RadioVoice::Adfg, RadioKind::Daily, "16", &report);
+            self.note(&report, "adfg");
+        }
+    }
+
+    /// VHF call. Wires to real orders. Tender gossip is chatter, not a fact stamp.
+    pub fn radio_call(&mut self, ident: &str, cursor: Option<&str>) -> String {
+        let parts: Vec<&str> = ident.split('|').collect();
+        match parts.first().copied().unwrap_or("") {
+            "tender" => self.radio_call_tender(),
+            "listen" => self.radio_listen_official(),
+            "skiff" if parts.len() >= 3 => {
+                let sid = parts[1];
+                let job = parts[2];
+                let site = if job == "pick" { cursor } else { None };
+                let handle = self
+                    .skiffs
+                    .iter()
+                    .find(|s| s.id == sid)
+                    .map(|s| radio_skiff_handle(self, s))
+                    .unwrap_or_else(|| "Skiff".into());
+                let tx = order_tx(&handle, job);
+                let msg = self.assign_skiff(sid, job, site);
+                let rx = if msg.contains("done") || msg.starts_with("Jobs:") {
+                    msg.clone()
+                } else if self.skipper_in_town {
+                    format!("{}. We'll run it from camp.", order_copy(&handle, job))
+                } else {
+                    order_copy(&handle, job)
+                };
+                self.push_radio(RadioVoice::Skipper, RadioKind::Order, "68", tx);
+                self.push_radio(RadioVoice::Crew, RadioKind::Reply, "68", &rx);
+                msg
+            }
+            "crew" if parts.len() >= 3 => {
+                let cid = parts[1];
+                let where_ = parts[2];
+                let name = self
+                    .crew
+                    .iter()
+                    .find(|c| c.id == cid)
+                    .map(|c| first_name(&c.name).to_string())
+                    .unwrap_or_else(|| "Hand".into());
+                let tx = match where_ {
+                    "camp" => format!("{name}, bunkhouse"),
+                    "cook" => format!("{name}, stay on the beach — cookshack"),
+                    other => {
+                        let boat = self
+                            .skiffs
+                            .iter()
+                            .find(|s| s.id == other)
+                            .map(|s| radio_skiff_handle(self, s))
+                            .unwrap_or_else(|| "skiff".into());
+                        format!("{name}, get on {boat}")
+                    }
+                };
+                let msg = self.assign_crew(cid, where_);
+                let rx = format!("{name} copy");
+                self.push_radio(RadioVoice::Skipper, RadioKind::Order, "68", tx);
+                self.push_radio(RadioVoice::Crew, RadioKind::Reply, "68", rx);
+                msg
+            }
+            _ => "Nobody on that channel.".into(),
+        }
+    }
+
+    fn radio_call_tender(&mut self) -> String {
+        let name = self.tender.name.clone();
+        let tx = format!("{name}, camp on 68. Board?");
+        self.push_radio(RadioVoice::Skipper, RadioKind::Order, "68", tx);
+        if !tender_on_the_grounds(self) {
+            let rx = if self.tender.late {
+                format!("No joy. {name} is late. No board, no gossip until they hook up.")
+            } else {
+                format!(
+                    "No answer. {name} offshore, ETA {} tides.",
+                    self.tender.eta_tides.max(0)
+                )
+            };
+            self.push_radio(RadioVoice::Tender, RadioKind::Reply, "68", &rx);
+            return rx;
+        }
+        let board = tender_price_board(self);
+        self.push_radio(
+            RadioVoice::Tender,
+            RadioKind::TenderQuote,
+            "68",
+            format!("{name} quoting: {board}"),
+        );
+        let rumor = spin_tender_rumor(self);
+        let chatter = format!("And they say — {}.", rumor.chatter);
+        self.radio.push(RadioLine {
+            tick: self.tick,
+            voice: RadioVoice::Tender,
+            kind: RadioKind::Rumor,
+            channel: "68",
+            text: chatter.clone(),
+            rumor_truth: Some(rumor.truth),
+        });
+        format!("{name} quoting: {board}. {chatter}")
+    }
+
+    fn radio_listen_official(&mut self) -> String {
+        self.push_radio(
+            RadioVoice::Skipper,
+            RadioKind::Listen,
+            "16",
+            "Camp standing by on 16.",
+        );
+        if let Some(line) = self
+            .radio
+            .iter()
+            .rev()
+            .find(|l| l.voice == RadioVoice::Adfg)
+            .cloned()
+        {
+            self.push_radio(RadioVoice::Adfg, RadioKind::Listen, "16", line.text.clone());
+            line.text
+        } else {
+            let rx = "Squelch. Nothing on 16 yet.";
+            self.push_radio(RadioVoice::Adfg, RadioKind::Listen, "16", rx);
+            rx.into()
+        }
+    }
+
+    fn camp_between_openers(&mut self) {
+        if self.any_open() {
+            return;
+        }
+        if self.tide != crate::sim::clock::Tide::Ebb {
+            return;
+        }
+        if self.tick % 6 == 0 {
+            self.note(
+                "Still dark. Mend, rest, or x through the wait. ADF&G on 16 once a day.",
+                "camp",
+            );
         }
     }
 
@@ -266,6 +473,9 @@ impl Game {
         self.crew_metabolism();
         self.payroll();
         self.repair_idle();
+        self.camp_between_openers();
+        self.radio_official_tick();
+        tick_hints(self);
         self.check_fail();
         Self::log_since(&self.log, start)
     }
@@ -330,8 +540,13 @@ impl Game {
             return;
         }
         if self.day.month == 8 && self.day.day >= 1 {
-            let floor = prices_for_year(self.year).pink * 0.50;
-            self.tender.prices.pink = (self.tender.prices.pink * 0.82).max(floor);
+            let open = prices_for_year(self.year).pink;
+            if self.tender.prices.pink <= open * 0.88 {
+                self.midseason_cut = true;
+                return;
+            }
+            let floor = open * 0.55;
+            self.tender.prices.pink = (self.tender.prices.pink * 0.90).max(floor);
             self.midseason_cut = true;
             let px = self.tender.prices.pink;
             self.note(
@@ -358,11 +573,8 @@ impl Game {
             let Some(site_id) = self.nets[i].site_id.clone() else {
                 continue;
             };
-            let (open, reason) = self.site_is_open(&site_id);
+            let (open, _reason) = self.site_is_open(&site_id);
             if !open {
-                if self.last_open {
-                    self.note(format!("Closer. {reason}. Gear out of the water."), "adfg");
-                }
                 if self.nets[i].soak_tides > 0 {
                     self.nets[i].soak_tides += 1;
                     if self.nets[i].soak_tides > 2 {
@@ -418,7 +630,8 @@ ${fine:.0} (game fine) and the net is on the beach."
                 lions,
             );
         }
-        self.last_open = any_open || current_window(&self.openings, self.day, self.district()).is_some();
+        self.last_open =
+            any_open || current_window(&self.openings, self.day, self.district()).is_some();
     }
 
     fn skiffs_act(&mut self) {
@@ -442,13 +655,17 @@ ${fine:.0} (game fine) and the net is on the beach."
             }
             if grounded && self.skiffs[i].job != SkiffJob::Idle {
                 let name = self.skiffs[i].name.clone();
-                self.note(format!("{name} stays on the running line — weather."), "weather");
+                self.note(
+                    format!("{name} stays on the running line — weather."),
+                    "weather",
+                );
                 continue;
             }
             match self.skiffs[i].job {
                 SkiffJob::Repair => {
                     let loft = self.net_loft;
-                    self.skiffs[i].condition = (self.skiffs[i].condition + 8.0 + 2.0 * f64::from(loft)).min(92.0);
+                    self.skiffs[i].condition =
+                        (self.skiffs[i].condition + 8.0 + 2.0 * f64::from(loft)).min(92.0);
                     if self.skiffs[i].condition >= 70.0 {
                         self.skiffs[i].job = SkiffJob::Idle;
                         let name = self.skiffs[i].name.clone();
@@ -476,7 +693,8 @@ ${fine:.0} (game fine) and the net is on the beach."
         if !self.skipper_in_town {
             if let Some(own) = self.crew.iter().position(|c| c.is_owner) {
                 if self.crew[own].status == CrewStatus::Working {
-                    let assigned_here = self.crew[own].assigned.as_deref() == Some(skiff.id.as_str());
+                    let assigned_here =
+                        self.crew[own].assigned.as_deref() == Some(skiff.id.as_str());
                     let unassigned_pick =
                         self.crew[own].assigned.is_none() && skiff.job == SkiffJob::Pick;
                     if (assigned_here || unassigned_pick) && !out.contains(&own) {
@@ -494,9 +712,7 @@ ${fine:.0} (game fine) and the net is on the beach."
             self.skiffs[skiff_i].fuel -= need;
             return true;
         }
-        let take = self
-            .fuel_cache
-            .min(need - self.skiffs[skiff_i].fuel);
+        let take = self.fuel_cache.min(need - self.skiffs[skiff_i].fuel);
         self.fuel_cache -= take;
         self.skiffs[skiff_i].fuel += take;
         if self.skiffs[skiff_i].fuel >= need {
@@ -531,9 +747,12 @@ ${fine:.0} (game fine) and the net is on the beach."
             self.skiffs[skiff_i].job = SkiffJob::Idle;
             return;
         }
+        let from = self.skiffs[skiff_i].location.clone();
         if hops <= 1 {
             self.skiffs[skiff_i].location = dest.into();
+            self.skiffs[skiff_i].from = None;
         } else {
+            self.skiffs[skiff_i].from = Some(from);
             self.skiffs[skiff_i].location = "transit".into();
             self.skiffs[skiff_i].dest = Some(dest.into());
             self.skiffs[skiff_i].eta = hops - 1;
@@ -710,13 +929,9 @@ ${fine:.0} (game fine) and the net is on the beach."
         self.ledger.tickets += 1;
         self.tender.last_ticket = pay;
         self.tender.last_lbs = cargo.total();
-        self.tender.last_note = format!(
-            "${:.0}  {}  q={q:.2} {claim}",
-            pay,
-            bits.join(", ")
-        )
-        .trim()
-        .to_string();
+        self.tender.last_note = format!("${:.0}  {}  q={q:.2} {claim}", pay, bits.join(", "))
+            .trim()
+            .to_string();
         for c in &mut self.crew {
             if c.is_owner || c.status == CrewStatus::Quit || c.share <= 0.0 {
                 continue;
@@ -800,7 +1015,7 @@ ${fine:.0} (game fine) and the net is on the beach."
             {
                 self.crew[i].energy = (self.crew[i].energy + 6.0 * rest_mod).min(100.0);
                 if !last_open {
-                    self.crew[i].morale = (self.crew[i].morale - 0.4).max(0.0);
+                    self.crew[i].morale = (self.crew[i].morale + 0.25).min(100.0);
                 } else {
                     self.crew[i].morale = (self.crew[i].morale - 1.1).max(0.0);
                 }
@@ -1203,7 +1418,11 @@ ${fine:.0} (game fine) and the net is on the beach."
         self.ledger.cash -= cost;
         self.ledger.other += cost;
         self.joint_venture = true;
-        let fm = if self.district() == "central" { 100 } else { 75 };
+        let fm = if self.district() == "central" {
+            100
+        } else {
+            75
+        };
         self.nets.push(Net::new("net-3", None, fm, "mixed"));
         self.note(
             "Joint venture with a second S04K. Three nets, 300 fm (350 Central). They're on the beach.",
@@ -1330,7 +1549,7 @@ pub fn new_game(seed: u64, camp_id: &str, year: i32) -> Result<Game, String> {
         log: Vec::new(),
         openings,
         mods,
-        food: 55.0,
+        food: 72.0,
         fuel_cache: 110.0,
         twine: 3,
         spare_prop: 1,
@@ -1351,6 +1570,14 @@ pub fn new_game(seed: u64, camp_id: &str, year: i32) -> Result<Game, String> {
         midseason_cut: false,
         last_open: false,
         payday_counter: 0,
+        radio: Vec::new(),
+        last_official_doy: 0,
+        last_radio_open: None,
+        last_radio_extended: false,
+        hints_on: true,
+        hint: None,
+        hint_seen: HashSet::new(),
+        hint_snooze_tick: 0,
     };
 
     let owner = CrewMember {
@@ -1433,6 +1660,8 @@ pub fn new_game(seed: u64, camp_id: &str, year: i32) -> Result<Game, String> {
         ),
         "market",
     );
+    g.radio_official_tick();
+    tick_hints(&mut g);
     Ok(g)
 }
 
@@ -1533,18 +1762,13 @@ fn ai(game: &mut Game) {
         if game.fuel_cache < 25.0 {
             game.buy("fuel");
         }
-        if game.ice_cache < 6.0 {
+        if game.ice_cache < 12.0 {
             game.buy("ice");
         }
         if game.nets.iter().any(|n| n.condition < 55.0) {
             game.buy("twine");
         }
-        let deck_empty = game
-            .working_deck()
-            .iter()
-            .filter(|c| !c.is_owner)
-            .count()
-            == 0;
+        let deck_empty = game.working_deck().iter().filter(|c| !c.is_owner).count() == 0;
         if deck_empty {
             let pool = game.hire_pool.clone();
             for cid in pool {

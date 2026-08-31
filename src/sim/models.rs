@@ -195,7 +195,12 @@ pub struct Net {
 }
 
 impl Net {
-    pub fn new(id: impl Into<String>, site_id: Option<String>, fathoms: i32, mesh: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        site_id: Option<String>,
+        fathoms: i32,
+        mesh: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             site_id,
@@ -218,6 +223,7 @@ pub struct Skiff {
     pub kind: String,
     pub location: String,
     pub dest: Option<String>,
+    pub from: Option<String>,
     pub eta: i32,
     pub fuel: f64,
     pub condition: f64,
@@ -231,13 +237,19 @@ pub struct Skiff {
 }
 
 impl Skiff {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, kind: impl Into<String>, location: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        kind: impl Into<String>,
+        location: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             kind: kind.into(),
             location: location.into(),
             dest: None,
+            from: None,
             eta: 0,
             fuel: 28.0,
             condition: 90.0,
