@@ -9,6 +9,7 @@ use crate::sim::mammals::{
     arrive_residents, arrive_transients, pinnipeds_present, transients_present,
 };
 use crate::sim::models::{CrewStatus, GameEnd, Lbs, SkiffJob};
+use crate::sim::radio::{RadioKind, RadioVoice};
 
 pub fn apply_sea_lion_raid(game: &mut Game, site_id: Option<&str>) -> String {
     if let Some(sid) = site_id {
@@ -29,7 +30,11 @@ The orcas are not picking your salmon — haulout is empty."
         .iter()
         .enumerate()
         .filter(|(_, n)| n.in_water && n.fish.total() > 0.0)
-        .filter(|(_, n)| site_id.map(|s| n.site_id.as_deref() == Some(s)).unwrap_or(true))
+        .filter(|(_, n)| {
+            site_id
+                .map(|s| n.site_id.as_deref() == Some(s))
+                .unwrap_or(true)
+        })
         .filter(|(_, n)| {
             n.site_id
                 .as_deref()
@@ -118,7 +123,11 @@ pub fn apply_harbor_seal_raid(game: &mut Game, site_id: Option<&str>) -> String 
                 .as_deref()
                 .is_some_and(|s| pinnipeds_present(&game.wildlife, s))
         })
-        .filter(|(_, n)| site_id.map(|s| n.site_id.as_deref() == Some(s)).unwrap_or(true))
+        .filter(|(_, n)| {
+            site_id
+                .map(|s| n.site_id.as_deref() == Some(s))
+                .unwrap_or(true)
+        })
         .map(|(i, _)| i)
         .collect();
 
@@ -239,10 +248,7 @@ fn fog(game: &mut Game) -> String {
 fn seas(game: &mut Game) -> String {
     game.weather.seas_ft = game.weather.seas_ft.max(game.rng.uniform(5.0, 8.5));
     game.weather.wind_kt = game.weather.wind_kt.max(28.0);
-    game.weather.label = format!(
-        "Shelikof {:.0} ft, short and steep",
-        game.weather.seas_ft
-    );
+    game.weather.label = format!("Shelikof {:.0} ft, short and steep", game.weather.seas_ft);
     "Shelikof stacking up. Short, steep, mean. Holding skiff takes water.".into()
 }
 
@@ -251,7 +257,10 @@ fn rip(game: &mut Game) -> String {
         if s.location == "town" || s.location == "transit" || s.job == SkiffJob::Town {
             s.eta += 1;
             s.condition -= 6.0;
-            return format!("Whale Passage 6 knots against you. {} loses a tide.", s.name);
+            return format!(
+                "Whale Passage 6 knots against you. {} loses a tide.",
+                s.name
+            );
         }
     }
     "Whale Passage ripping. Stay off it unless you're going to town.".into()
@@ -308,7 +317,10 @@ fn no_pinniped_raid(game: &Game, who: &str) -> String {
         .map(|b| b.label.as_str())
         .collect();
     if !empty.is_empty() {
-        return format!("{who} still gone from {}. Haulout hasn't filled.", empty.join(", "));
+        return format!(
+            "{who} still gone from {}. Haulout hasn't filled.",
+            empty.join(", ")
+        );
     }
     format!("{who} on the rocks. Nothing in the water for them.")
 }
@@ -423,7 +435,9 @@ fn swamp(game: &mut Game) -> String {
         game.skiffs[i].condition = 18.0;
         game.skiffs[i].job = SkiffJob::Repair;
         game.skiffs[i].location = "camp".into();
-        return format!("{name} swamped. Last skiff — you drag her home and start on the lower unit.");
+        return format!(
+            "{name} swamped. Last skiff — you drag her home and start on the lower unit."
+        );
     }
     game.skiffs[i].location = "camp".into();
     game.scare_crew(8.0);
@@ -456,7 +470,7 @@ fn price(game: &mut Game) -> String {
     if game.tender.prices.pink <= floor + 0.01 {
         return "Town already cut the pink. Nothing left to give.".into();
     }
-    let cut = game.rng.uniform(0.10, 0.18);
+    let cut = game.rng.uniform(0.07, 0.12);
     game.tender.prices.pink = (game.tender.prices.pink * (1.0 - cut)).max(floor);
     if game.mods.pink_flood {
         let chum_floor = prices_for_year(game.year).chum * 0.50;
@@ -480,8 +494,9 @@ fn extension(game: &mut Game) -> String {
         return "VHF: no extension. Still dark.".into();
     }
     game.extend_open_tides = game.extend_open_tides.max(2);
-    "ADF&G radio: period extended. Last twenty-four hours they changed their mind. Stay in it."
-        .into()
+    let msg = "ADF&G: period extended. Last twenty-four hours. Stay in it.";
+    game.push_radio(RadioVoice::Adfg, RadioKind::Opener, "16", msg);
+    msg.into()
 }
 
 fn pulse(game: &mut Game) -> String {
@@ -492,7 +507,9 @@ fn pulse(game: &mut Game) -> String {
 fn spoil(game: &mut Game) -> String {
     let lost = game.food.min(f64::from(game.rng.randint(3, 8)));
     game.food -= lost;
-    format!("Meat went off in the cache. Lost {lost:.0} person-days of food. Cook is not surprised.")
+    format!(
+        "Meat went off in the cache. Lost {lost:.0} person-days of food. Cook is not surprised."
+    )
 }
 
 fn fight(game: &mut Game) -> String {

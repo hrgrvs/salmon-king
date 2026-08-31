@@ -6,7 +6,7 @@ use crate::sim::clock::{doy, GameDate};
 use crate::sim::models::RunMods;
 
 /// Game-number daily available pounds at a 1.0 affinity, 1.0 run, peak day.
-const PEAK_LBS: [f64; 5] = [18.0, 780.0, 2400.0, 400.0, 260.0];
+const PEAK_LBS: [f64; 5] = [18.0, 880.0, 2600.0, 440.0, 280.0];
 
 const LATE_RED_PEAK_DOY: i32 = 235;
 const LATE_RED_WIDTH: f64 = 16.0;
@@ -57,7 +57,7 @@ pub fn site_availability(site_id: &str, day: GameDate, mods: &RunMods) -> [(Spec
             }
         };
         let lbs = PEAK_LBS[sp.idx()] * aff * run * curve;
-        out[i] = (sp, (lbs * 0.5).max(0.0));
+        out[i] = (sp, (lbs * 0.86).max(0.0));
     }
     out
 }

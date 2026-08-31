@@ -11,10 +11,22 @@ pub struct ActionItem {
 pub fn skiff_items(game: &Game) -> Vec<ActionItem> {
     let mut out = Vec::new();
     for s in &game.skiffs {
-        out.push(item(format!("{}|pick", s.id), format!("{}: pick nets", s.name)));
-        out.push(item(format!("{}|tender", s.id), format!("{}: run tender", s.name)));
-        out.push(item(format!("{}|idle", s.id), format!("{}: idle / beach", s.name)));
-        out.push(item(format!("{}|repair", s.id), format!("{}: repair", s.name)));
+        out.push(item(
+            format!("{}|pick", s.id),
+            format!("{}: pick nets", s.name),
+        ));
+        out.push(item(
+            format!("{}|tender", s.id),
+            format!("{}: run tender", s.name),
+        ));
+        out.push(item(
+            format!("{}|idle", s.id),
+            format!("{}: idle / beach", s.name),
+        ));
+        out.push(item(
+            format!("{}|repair", s.id),
+            format!("{}: repair", s.name),
+        ));
         out.push(item(
             format!("{}|town", s.id),
             format!("{}: town run (permit leaves → nets dark)", s.name),
@@ -35,9 +47,15 @@ pub fn crew_items(game: &Game) -> Vec<ActionItem> {
                 format!("{} → {}", c.name, s.name),
             ));
         }
-        out.push(item(format!("{}|camp", c.id), format!("{} → bunkhouse", c.name)));
+        out.push(item(
+            format!("{}|camp", c.id),
+            format!("{} → bunkhouse", c.name),
+        ));
         if c.role == "cook" || c.id.ends_with("cook") {
-            out.push(item(format!("{}|cook", c.id), format!("{} → cookshack", c.name)));
+            out.push(item(
+                format!("{}|cook", c.id),
+                format!("{} → cookshack", c.name),
+            ));
         }
     }
     out
@@ -99,13 +117,80 @@ pub fn mesh_items(game: &Game) -> Vec<ActionItem> {
     out
 }
 
+pub fn radio_items(game: &Game) -> Vec<ActionItem> {
+    let mut out = Vec::new();
+    for s in &game.skiffs {
+        if s.wrecked {
+            continue;
+        }
+        let n = if s.kind == "holding" {
+            "Holding"
+        } else {
+            "Picking skiff"
+        };
+        out.push(item(
+            format!("skiff|{}|pick", s.id),
+            format!("{n} — come pick"),
+        ));
+        out.push(item(
+            format!("skiff|{}|tender", s.id),
+            format!("{n} — run the tender"),
+        ));
+        out.push(item(
+            format!("skiff|{}|idle", s.id),
+            format!("{n} — come home"),
+        ));
+        out.push(item(
+            format!("skiff|{}|repair", s.id),
+            format!("{n} — rest / mend"),
+        ));
+    }
+    for c in &game.crew {
+        if c.status == CrewStatus::Quit || c.is_owner {
+            continue;
+        }
+        let n = c.name.split_whitespace().next().unwrap_or(&c.name);
+        for s in &game.skiffs {
+            if s.wrecked {
+                continue;
+            }
+            let boat = if s.kind == "holding" {
+                "Holding"
+            } else {
+                "Picking skiff"
+            };
+            out.push(item(
+                format!("crew|{}|{}", c.id, s.id),
+                format!("{n} — get on {boat}"),
+            ));
+        }
+        out.push(item(
+            format!("crew|{}|camp", c.id),
+            format!("{n} — bunkhouse / rest"),
+        ));
+        if c.role == "cook" {
+            out.push(item(
+                format!("crew|{}|cook", c.id),
+                format!("{n} — cookshack"),
+            ));
+        }
+    }
+    out.push(item("tender", "Tender — prices and rumors"));
+    out.push(item("listen", "ADF&G — listen / last official"));
+    out
+}
+
 pub fn pull_items(game: &Game) -> Vec<ActionItem> {
     game.nets
         .iter()
         .map(|n| {
             item(
                 n.id.clone(),
-                format!("Pull {}  ({})", n.id, n.site_id.as_deref().unwrap_or("beach")),
+                format!(
+                    "Pull {}  ({})",
+                    n.id,
+                    n.site_id.as_deref().unwrap_or("beach")
+                ),
             )
         })
         .collect()

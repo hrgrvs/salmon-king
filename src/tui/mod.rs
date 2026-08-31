@@ -25,14 +25,18 @@ use salmon_king::sim::engine::{new_game, Game};
 use salmon_king::sim::models::GameEnd;
 
 use art::{help_header, title_art_scaled, NEW_SEASON_HEAD};
+use salmon_king::sim::hints::{dismiss_hint, set_hints};
 use screens::{
-    buy_items, crew_items, hire_items, mesh_items, pull_items, skiff_items, upgrade_items,
-    ActionItem,
+    buy_items, crew_items, hire_items, mesh_items, pull_items, radio_items, skiff_items,
+    upgrade_items, ActionItem,
 };
 use theme::{
     body, cork_bold, dark_tag, foam_bold, muted, open_tag, CARD, CORK, FOAM, HUD, NIGHT, WOOL,
 };
-use widgets::{draw_boats, draw_camp, draw_clock, draw_crew, draw_log, draw_map, draw_tender};
+use widgets::{
+    draw_bay, draw_boats, draw_camp, draw_clock, draw_crew, draw_hint, draw_log, draw_map,
+    draw_radio, draw_tender,
+};
 
 pub fn run() -> io::Result<()> {
     enable_raw_mode()?;
@@ -437,6 +441,31 @@ fn handle_key_play(app: &mut App, key: KeyEvent) {
                     p.game.assign_skiff(&fat, "tender", None);
                 }
             }
+            KeyCode::Char('r') => {
+                p.overlay = Overlay::Picker {
+                    title: "VHF — who do you call?".into(),
+                    kind: "radio".into(),
+                    items: radio_items(&p.game),
+                    selected: 0,
+                };
+            }
+            KeyCode::Char('i') => {
+                let on = !p.game.hints_on;
+                set_hints(&mut p.game, on);
+                p.game.note(
+                    if on {
+                        "Hints on. Cook will mutter when something needs doing."
+                    } else {
+                        "Hints off. You're on your own."
+                    },
+                    "camp",
+                );
+            }
+            KeyCode::Esc => {
+                if p.game.hint.is_some() {
+                    dismiss_hint(&mut p.game);
+                }
+            }
             KeyCode::Char('?') => p.overlay = Overlay::Help,
             KeyCode::Char('q') => p.overlay = Overlay::Quit,
             _ => {}
@@ -447,6 +476,7 @@ fn handle_key_play(app: &mut App, key: KeyEvent) {
 fn apply_action(game: &mut Game, kind: &str, ident: &str, cursor: Option<&str>) {
     let msg = match kind {
         "pull" => game.pull_net(ident),
+        "radio" => game.radio_call(ident, cursor),
         "skiff" => {
             let mut parts = ident.splitn(2, '|');
             let sid = parts.next().unwrap_or("");
@@ -643,15 +673,34 @@ fn draw_play(f: &mut Frame, area: Rect, p: &Play) {
         chunks[0],
     );
 
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
-        .split(chunks[1]);
-
     let sites = p.game.playable_sites();
     let cursor = sites.get(p.cursor_i % sites.len().max(1)).map(|s| s.id);
-    draw_map(f, body[0], &p.game, cursor);
-    draw_crew(f, body[1], &p.game);
+
+    if area.width >= 110 && chunks[1].height >= 8 {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(38),
+                Constraint::Percentage(28),
+                Constraint::Percentage(34),
+            ])
+            .split(chunks[1]);
+        draw_map(f, body[0], &p.game, cursor);
+        draw_bay(f, body[1], &p.game);
+        draw_crew(f, body[2], &p.game);
+    } else {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(chunks[1]);
+        let map_col = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(7)])
+            .split(body[0]);
+        draw_map(f, map_col[0], &p.game, cursor);
+        draw_bay(f, map_col[1], &p.game);
+        draw_crew(f, body[1], &p.game);
+    }
 
     draw_boats(f, chunks[2], &p.game);
 
@@ -667,15 +716,24 @@ fn draw_play(f: &mut Frame, area: Rect, p: &Play) {
     draw_tender(f, mid[1], &p.game);
     draw_clock(f, mid[2], &p.game);
 
-    draw_log(f, chunks[4], &p.game);
+    let foot = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(44), Constraint::Percentage(56)])
+        .split(chunks[4]);
+    draw_radio(f, foot[0], &p.game);
+    draw_log(f, foot[1], &p.game);
 
     f.render_widget(
         Paragraph::new(
-            " space pause  1/4/x speed  ←→ site  enter set  p pull  s skiff  c crew  h hire  b buy  u upg  t tender  ? help  q quit",
+            " space pause  1/4/x  ←→ site  enter set  p pull  r radio  s skiff  c crew  t tender  i hints  ? help  q quit",
         )
         .style(Style::default().fg(WOOL).bg(HUD)),
         chunks[5],
     );
+
+    if p.game.hints_on {
+        draw_hint(f, area, &p.game);
+    }
 
     match &p.overlay {
         Overlay::None => {}
@@ -731,10 +789,11 @@ fn draw_help(f: &mut Frame, area: Rect) {
     for row in [
         "  space pause/run    1 4 x speeds (1x / 4x / 16x)",
         "  ← →  site cursor   enter  set a net on the highlighted site",
-        "  p    pull nets      s     skiff job     c  crew assign",
+        "  p    pull nets      s     skiff job     c  crew assign     r  VHF",
         "  h    hire           b     buy from tender   u  upgrade camp",
         "  j    joint venture (2nd S04K, 3rd net)   t  send a skiff to the tender",
-        "  m    mesh knob      ? help   q quit",
+        "  m    mesh knob      i  hints on/off     esc dismiss aside",
+        "  ? help   q quit",
     ] {
         lines.push(Line::from(Span::styled(row, body())));
     }
@@ -749,6 +808,22 @@ fn draw_help(f: &mut Frame, area: Rect) {
     )));
     lines.push(Line::from(Span::styled(
         "or the lions and the sun do it for you. Tender buys fish and sells food/fuel/ice.",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "VHF: r calls a skiff, a hand, the tender (live board + gossip), or 16 (ADF&G).",
+        body(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Tender rumors are chatter. Official openers/closers and the once-a-day report are gospel.",
+        muted(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Bay inset: camp, live boats, whales whenever present, seals only while you pick.",
+        body(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Hints default on (i toggles for this season). Asides, not a tutorial wall.",
         muted(),
     )));
     lines.push(Line::from(Span::styled(
@@ -916,6 +991,62 @@ mod hud_tests {
         assert!(text.contains("picking"), "{text}");
         assert!(text.contains("cooking"), "{text}");
         assert!(text.contains("crew"), "{text}");
+        assert!(text.contains("Energy"), "{text}");
+        assert!(text.contains("Hunger"), "{text}");
+        assert!(text.contains("Morale"), "{text}");
+        assert!(
+            text.contains("VHF") || text.contains("CH 68") || text.contains("squelch"),
+            "{text}"
+        );
+        assert!(
+            text.contains("CAMP") || text.contains("bay") || text.contains("Uganik"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn hud_shows_tender_treat_after_alongside() {
+        use salmon_king::sim::models::Lbs;
+        let backend = TestBackend::new(100, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = play_app();
+        let snack = if let Screen::Play(p) = &mut app.screen {
+            p.game.tender.present = true;
+            p.game.tender.late = false;
+            p.game.skiffs[0].cargo = Lbs {
+                red: 80.0,
+                ..Lbs::default()
+            };
+            p.game.skiffs[0].cargo_quality = 1.0;
+            p.game.settle(0);
+            p.game.last_treat.clone().expect("treat after visit")
+        } else {
+            panic!("play");
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(
+            text.contains("tender treat") || text.contains("treat:"),
+            "{text}"
+        );
+        assert!(text.contains(&snack), "{text}");
+        assert!(
+            text.contains("Energy") && text.contains("Hunger") && text.contains("Morale"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn crew_hud_stacks_stat_words_when_the_pane_is_narrow() {
+        let game = new_game(1701, "uganik", 2025).expect("game");
+        // Inner width ~28 after borders — too tight for Energy/Hunger/Morale on one line.
+        let backend = TestBackend::new(32, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw_crew(f, f.area(), &game)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(text.contains("Energy"), "{text}");
+        assert!(text.contains("Hunger"), "{text}");
+        assert!(text.contains("Morale"), "{text}");
     }
 
     #[test]

@@ -43,6 +43,44 @@ fn four_camps_construct() {
 }
 
 #[test]
+fn competent_odd_year_can_make_the_nut() {
+    // Seed 42 stays in the black with the stacked tender-treat rule; 1701 is the sloppy control.
+    let mut g = new_game(42, "uganik", 2025).unwrap();
+    let recap = run_headless(&mut g, None);
+    assert_eq!(recap.end, GameEnd::Season);
+    assert!(
+        recap.net >= 0.0 || recap.grade == "C" || recap.grade == "B" || recap.grade == "A",
+        "odd-year AI should winter in the black or close: net {} grade {} gross {} exp {}",
+        recap.net,
+        recap.grade,
+        recap.gross,
+        recap.expenses
+    );
+}
+
+#[test]
+fn sloppy_skipper_winters_in_the_red() {
+    let mut g = new_game(1701, "uganik", 2025).unwrap();
+    let limit = tides_in_season(2025);
+    for _ in 0..limit {
+        if g.end != GameEnd::None {
+            break;
+        }
+        g.step();
+    }
+    if g.end == GameEnd::None {
+        g.finish(GameEnd::Season);
+    }
+    let recap = g.recap();
+    assert!(
+        recap.net < 0.0 || recap.tickets == 0 || recap.end != GameEnd::Season,
+        "doing nothing should not make the nut: net {} tickets {}",
+        recap.net,
+        recap.tickets
+    );
+}
+
+#[test]
 fn pause_and_speed_are_tui_only() {
     // Sim has no clock of its own: N steps is N tides regardless of "speed".
     let mut g = new_game(11, "uganik", 2025).unwrap();

@@ -8,18 +8,20 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
+use salmon_king::data::bay_charts::{render_bay_chart, BayMarks, BaySkiff};
 use salmon_king::data::maps::{render_map_marked, MapMarks};
 use salmon_king::data::sites::site;
 use salmon_king::data::species::{short_code, SpeciesId};
 use salmon_king::sim::engine::Game;
 use salmon_king::sim::mammals::{empty_haulout_sites, resident_sites, transient_sites};
 use salmon_king::sim::models::CrewStatus;
-use salmon_king::sim::status::{crew_glance, skiff_status};
+use salmon_king::sim::radio::{RadioKind, RadioVoice};
+use salmon_king::sim::status::{crew_glance, seal_sites_visible, skiff_status};
 
 use super::art::{boat_for_kind, crew_glyph, stamp_block, toast_for, wave_rule, CABIN, WILLIWAW};
 use super::theme::{
     body, cork_bold, dark_tag, foam_bold, kelp_bold, muted, open_tag, warn, CARD, CORK, DIESEL,
-    FLESH, FOAM, KELP, KELP_LT, WATER, WOOL,
+    FLESH, FOAM, HUD, KELP, KELP_LT, WATER, WOOL,
 };
 
 pub fn bar(value: f64, width: usize) -> String {
@@ -61,6 +63,7 @@ fn colorize_map(text: &str) -> Vec<Line<'static>> {
                         '·' => Style::default().fg(KELP_LT),
                         '×' | 'x' => Style::default().fg(FLESH),
                         'ω' => Style::default().fg(FOAM).add_modifier(Modifier::BOLD),
+                        'S' | 's' => Style::default().fg(CORK).add_modifier(Modifier::BOLD),
                         '>' | '<' => Style::default().fg(FLESH),
                         '*' => Style::default().fg(CORK),
                         '[' | ']' => Style::default().fg(WOOL),
@@ -159,6 +162,150 @@ pub fn draw_map(f: &mut Frame, area: Rect, game: &Game, cursor: Option<&str>) {
         }
     }
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+pub fn draw_bay(f: &mut Frame, area: Rect, game: &Game) {
+    let block = pane(
+        " bay · ▲ camp  › pick  » hold  ω whale  S seal-in-pick ",
+        WATER,
+    );
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let trans = transient_sites(&game.wildlife);
+    let res = resident_sites(&game.wildlife);
+    let seals = seal_sites_visible(game);
+    let skiffs: Vec<BaySkiff> = game
+        .skiffs
+        .iter()
+        .filter(|s| !s.wrecked)
+        .map(|s| BaySkiff {
+            location: s.location.clone(),
+            dest: s.dest.clone(),
+            from: s.from.clone(),
+            eta: s.eta,
+            kind: s.kind.clone(),
+        })
+        .collect();
+    let text = render_bay_chart(
+        game.camp.id,
+        &BayMarks {
+            skiffs: &skiffs,
+            tender_here: game.tender.present,
+            transient_sites: &trans,
+            resident_sites: &res,
+            seal_sites: &seals,
+        },
+    );
+    let mut lines = colorize_map(&text);
+    if let Some(h) = &game.hint {
+        lines.push(Line::from(Span::styled(
+            format!("cook: {}", h.text),
+            muted(),
+        )));
+    }
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+pub fn draw_radio(f: &mut Frame, area: Rect, game: &Game) {
+    let sq = if game.skipper_in_town {
+        "SQ ──●──  town"
+    } else {
+        "SQ ──●──"
+    };
+    let block = pane(&format!(" VHF · ch 68  {sq} "), DIESEL);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let mut lines = vec![
+        Line::from(Span::styled("  ▓▓▓ ▓▓▓ ▓▓▓ ▓▓▓", Style::default().fg(WOOL))),
+        Line::from(Span::styled("  ▓▓▓ ▓▓▓ ▓▓▓ ▓▓▓", Style::default().fg(WOOL))),
+    ];
+    if inner.height >= 7 {
+        lines.push(Line::from(vec![
+            Span::styled("  CH 68  ", foam_bold()),
+            Span::styled("work    ", muted()),
+            Span::styled("16 ", cork_bold()),
+            Span::styled("ADF&G", muted()),
+        ]));
+    }
+    let skip = game
+        .radio
+        .iter()
+        .rev()
+        .find(|l| l.voice == RadioVoice::Skipper);
+    let reply = game.radio.iter().rev().find(|l| {
+        matches!(l.voice, RadioVoice::Crew | RadioVoice::Tender) && l.kind != RadioKind::Daily
+    });
+    let official = game
+        .radio
+        .iter()
+        .rev()
+        .find(|l| l.voice == RadioVoice::Adfg);
+    if let Some(tx) = skip {
+        lines.push(Line::from(vec![
+            Span::styled(" TX ", cork_bold()),
+            Span::styled(tx.text.clone(), body()),
+        ]));
+    }
+    if let Some(rx) = reply {
+        let style = if rx.kind == RadioKind::Rumor {
+            muted()
+        } else {
+            kelp_bold()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(" RX ", kelp_bold()),
+            Span::styled(rx.text.clone(), style),
+        ]));
+    }
+    if let Some(ad) = official {
+        lines.push(Line::from(vec![
+            Span::styled(" 16 ", cork_bold()),
+            Span::styled(ad.text.clone(), foam_bold()),
+        ]));
+    }
+    if let Some(snack) = &game.last_treat {
+        lines.push(Line::from(vec![
+            Span::styled("  .--. ", Style::default().fg(CORK)),
+            Span::styled(format!("treat: {snack}"), kelp_bold()),
+        ]));
+    }
+    if game.radio.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  squelch. r  call a skiff, hand, tender, or 16.",
+            muted(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  r  call    rumors are chatter    16 is gospel",
+            muted(),
+        )));
+    }
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+}
+
+pub fn draw_hint(f: &mut Frame, area: Rect, game: &Game) {
+    let Some(h) = &game.hint else {
+        return;
+    };
+    if area.height < 3 {
+        return;
+    }
+    let strip = Rect {
+        x: area.x + 1,
+        y: area.y + area.height.saturating_sub(4),
+        width: area.width.saturating_sub(2),
+        height: 2,
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" aside  ", cork_bold()),
+            Span::styled(h.text.clone(), body()),
+            Span::styled("   esc dismiss   i hints off", muted()),
+        ]))
+        .style(Style::default().bg(HUD).fg(FOAM))
+        .wrap(Wrap { trim: true }),
+        strip,
+    );
 }
 
 pub fn draw_boats(f: &mut Frame, area: Rect, game: &Game) {
@@ -283,14 +430,7 @@ pub fn draw_crew(f: &mut Frame, area: Rect, game: &Game) {
         spans.push(Span::styled(activity, act_style));
         lines.push(Line::from(spans));
         if !compact && g.status != CrewStatus::Quit {
-            lines.push(Line::from(vec![
-                Span::styled("     E ", muted()),
-                Span::styled(bar(g.energy, 8), Style::default().fg(KELP_LT)),
-                Span::styled("  H ", muted()),
-                Span::styled(bar(100.0 - g.hunger, 8), Style::default().fg(CORK)),
-                Span::styled("  M ", muted()),
-                Span::styled(bar(g.morale, 8), Style::default().fg(FOAM)),
-            ]));
+            lines.extend(crew_stat_lines(g.energy, g.hunger, g.morale, inner.width));
         }
     }
     let para = Paragraph::new(lines);
@@ -299,6 +439,44 @@ pub fn draw_crew(f: &mut Frame, area: Rect, game: &Game) {
     } else {
         f.render_widget(para.wrap(Wrap { trim: true }), inner);
     }
+}
+
+/// Energy / Hunger / Morale bars. Prefer one line (same row budget as E/H/M).
+/// If the pane is too narrow even with tighter gaps, stack at a label boundary
+/// so the words stay intact instead of collapsing back to a letter.
+fn crew_stat_lines(energy: f64, hunger: f64, morale: f64, width: u16) -> Vec<Line<'static>> {
+    let w = width as usize;
+    // lead + "Energy " + bar + gap + "Hunger " + bar + gap + "Morale " + bar
+    const LABEL: usize = 7; // "Energy " / "Hunger " / "Morale "
+    for bar_w in (4..=8).rev() {
+        for (lead, gap) in [("     ", "  "), ("  ", "  "), (" ", " ")] {
+            let need =
+                lead.len() + LABEL + bar_w + gap.len() + LABEL + bar_w + gap.len() + LABEL + bar_w;
+            if w >= need {
+                return vec![Line::from(vec![
+                    Span::styled(format!("{lead}Energy "), muted()),
+                    Span::styled(bar(energy, bar_w), Style::default().fg(KELP_LT)),
+                    Span::styled(format!("{gap}Hunger "), muted()),
+                    Span::styled(bar(100.0 - hunger, bar_w), Style::default().fg(CORK)),
+                    Span::styled(format!("{gap}Morale "), muted()),
+                    Span::styled(bar(morale, bar_w), Style::default().fg(FOAM)),
+                ])];
+            }
+        }
+    }
+    [
+        ("Energy", bar(energy, 8), Style::default().fg(KELP_LT)),
+        ("Hunger", bar(100.0 - hunger, 8), Style::default().fg(CORK)),
+        ("Morale", bar(morale, 8), Style::default().fg(FOAM)),
+    ]
+    .into_iter()
+    .map(|(label, fill, style)| {
+        Line::from(vec![
+            Span::styled(format!("     {label} "), muted()),
+            Span::styled(fill, style),
+        ])
+    })
+    .collect()
 }
 
 fn compact_activity(activity: &str, skiff: Option<&str>) -> String {
@@ -355,7 +533,7 @@ pub fn draw_tender(f: &mut Frame, area: Rect, game: &Game) {
         .map(|&sp| format!("{} ${:.2}", short_code(sp), p.get(sp)))
         .collect::<Vec<_>>()
         .join("  ");
-    let lines = vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::styled(format!("{}  ", game.tender.name), foam_bold()),
             eta.spans.first().cloned().unwrap_or_else(|| Span::raw("")),
@@ -367,6 +545,16 @@ pub fn draw_tender(f: &mut Frame, area: Rect, game: &Game) {
             muted(),
         )),
     ];
+    if let Some(snack) = &game.last_treat {
+        lines.push(Line::from(vec![
+            Span::styled("  .--. ", Style::default().fg(CORK)),
+            Span::styled(format!("tender treat: {snack}"), kelp_bold()),
+        ]));
+        lines.push(Line::from(Span::styled(
+            " |____|",
+            Style::default().fg(CORK),
+        )));
+    }
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
 }
 

@@ -3,8 +3,11 @@
 //! No extra state. A missing "current job" string is assembled here from job,
 //! location, dest, assignment, and crew status the engine already keeps.
 
+use std::collections::HashSet;
+
 use crate::data::sites::site;
 use crate::sim::engine::Game;
+use crate::sim::mammals::pinnipeds_present;
 use crate::sim::models::{CrewMember, CrewStatus, Skiff, SkiffJob};
 
 /// Human place name for a skiff location or destination id.
@@ -184,6 +187,31 @@ pub struct CrewGlance {
     pub energy: f64,
     pub hunger: f64,
     pub morale: f64,
+}
+
+/// Sites where a skiff is on the water picking right now (not in transit).
+pub fn picking_site_ids(game: &Game) -> HashSet<String> {
+    game.skiffs
+        .iter()
+        .filter(|s| !s.wrecked && s.job == SkiffJob::Pick)
+        .filter_map(|s| {
+            let loc = s.location.as_str();
+            if matches!(loc, "camp" | "town" | "tender" | "transit") {
+                None
+            } else {
+                Some(s.location.clone())
+            }
+        })
+        .collect()
+}
+
+/// Seal / SSL marks: only while someone is picking that site, and only if the
+/// haulout is still occupied. Raid modifiers stay in the sim either way.
+pub fn seal_sites_visible(game: &Game) -> HashSet<String> {
+    picking_site_ids(game)
+        .into_iter()
+        .filter(|sid| pinnipeds_present(&game.wildlife, sid))
+        .collect()
 }
 
 pub fn crew_glance(game: &Game, crew: &CrewMember) -> CrewGlance {
