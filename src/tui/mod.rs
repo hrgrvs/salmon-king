@@ -916,6 +916,22 @@ mod hud_tests {
         assert!(text.contains("picking"), "{text}");
         assert!(text.contains("cooking"), "{text}");
         assert!(text.contains("crew"), "{text}");
+        assert!(text.contains("Energy"), "{text}");
+        assert!(text.contains("Hunger"), "{text}");
+        assert!(text.contains("Morale"), "{text}");
+    }
+
+    #[test]
+    fn crew_hud_stacks_stat_words_when_the_pane_is_narrow() {
+        let game = new_game(1701, "uganik", 2025).expect("game");
+        // Inner width ~28 after borders — too tight for Energy/Hunger/Morale on one line.
+        let backend = TestBackend::new(32, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw_crew(f, f.area(), &game)).unwrap();
+        let text = dump(terminal.backend());
+        assert!(text.contains("Energy"), "{text}");
+        assert!(text.contains("Hunger"), "{text}");
+        assert!(text.contains("Morale"), "{text}");
     }
 
     #[test]

@@ -283,14 +283,7 @@ pub fn draw_crew(f: &mut Frame, area: Rect, game: &Game) {
         spans.push(Span::styled(activity, act_style));
         lines.push(Line::from(spans));
         if !compact && g.status != CrewStatus::Quit {
-            lines.push(Line::from(vec![
-                Span::styled("     E ", muted()),
-                Span::styled(bar(g.energy, 8), Style::default().fg(KELP_LT)),
-                Span::styled("  H ", muted()),
-                Span::styled(bar(100.0 - g.hunger, 8), Style::default().fg(CORK)),
-                Span::styled("  M ", muted()),
-                Span::styled(bar(g.morale, 8), Style::default().fg(FOAM)),
-            ]));
+            lines.extend(crew_stat_lines(g.energy, g.hunger, g.morale, inner.width));
         }
     }
     let para = Paragraph::new(lines);
@@ -299,6 +292,38 @@ pub fn draw_crew(f: &mut Frame, area: Rect, game: &Game) {
     } else {
         f.render_widget(para.wrap(Wrap { trim: true }), inner);
     }
+}
+
+/// Energy / Hunger / Morale bars. Pack onto one line when the pane is wide
+/// enough; otherwise wrap or stack at a label boundary so the words stay intact.
+fn crew_stat_lines(energy: f64, hunger: f64, morale: f64, width: u16) -> Vec<Line<'static>> {
+    let stats = [
+        ("Energy", bar(energy, 8), Style::default().fg(KELP_LT)),
+        ("Hunger", bar(100.0 - hunger, 8), Style::default().fg(CORK)),
+        ("Morale", bar(morale, 8), Style::default().fg(FOAM)),
+    ];
+    let w = width as usize;
+    let mut lines = Vec::new();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+
+    for (label, fill, style) in stats {
+        let piece_w = label.len() + 1 + fill.chars().count();
+        let lead = if spans.is_empty() { "     " } else { "  " };
+        let need = lead.len() + piece_w;
+        if !spans.is_empty() && used.saturating_add(need) > w {
+            lines.push(Line::from(std::mem::take(&mut spans)));
+            used = 0;
+        }
+        let lead = if spans.is_empty() { "     " } else { "  " };
+        used = used.saturating_add(lead.len() + piece_w);
+        spans.push(Span::styled(format!("{lead}{label} "), muted()));
+        spans.push(Span::styled(fill, style));
+    }
+    if !spans.is_empty() {
+        lines.push(Line::from(spans));
+    }
+    lines
 }
 
 fn compact_activity(activity: &str, skiff: Option<&str>) -> String {
